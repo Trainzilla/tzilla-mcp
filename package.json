@@ -13,7 +13,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "start:http": "node dist/http.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "try": "node scripts/try.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
