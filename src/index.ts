@@ -38,6 +38,23 @@ async function trainerUserId(): Promise<string> {
   return id;
 }
 
+const WORKOUT_SECTIONS = ["WARMUP", "RESISTANCE", "STRETCHING", "CARDIO", "COOL_DOWN"];
+
+/** Coerce loose exercise objects into valid ExerciseInput: known section + required numeric fields. */
+function normalizeExercises(exercises: Record<string, unknown>[]): Record<string, unknown>[] {
+  return exercises.map((raw, i) => {
+    const e: Record<string, unknown> = { ...raw };
+    const sec = String(e.section ?? "").toUpperCase().replace(/[\s-]+/g, "_");
+    e.section = WORKOUT_SECTIONS.includes(sec) ? sec : "RESISTANCE";
+    e.name = String(e.name ?? "Exercise");
+    e.sets = Number(e.sets) > 0 ? Number(e.sets) : 3;
+    e.reps = Number(e.reps) > 0 ? Number(e.reps) : 10;
+    e.restSeconds = Number(e.restSeconds) >= 0 ? Number(e.restSeconds) : 60;
+    e.order = Number(e.order) > 0 ? Number(e.order) : i + 1;
+    return e;
+  });
+}
+
 /* ───────────────────────── Registration ───────────────────────── */
 
 export function registerAll(server: McpServer): void {
@@ -456,7 +473,9 @@ server.tool(
 
 server.tool(
   "create_workout_plan",
-  "Create a workout plan for a client (confirm-gated). exercises: array of ExerciseInput objects (e.g. { name, sets, reps, restSeconds, section }). days: optional [Weekday].",
+  "Create a workout plan for a client (confirm-gated). exercises: array of { name, sets, reps, restSeconds?, section? }. " +
+    "section must be one of WARMUP | RESISTANCE | STRETCHING | CARDIO | COOL_DOWN (defaults to RESISTANCE so the app renders them under 'Main Workout'). " +
+    "days: optional [MONDAY..SUNDAY].",
   {
     clientId: z.string().min(1),
     title: z.string().min(1),
@@ -467,13 +486,14 @@ server.tool(
     days: z.array(z.string()).optional(),
     ...confirmField,
   },
-  async ({ confirm, ...args }) => {
-    if (!confirm) return preview("create_workout_plan", args);
+  async ({ confirm, exercises, ...args }) => {
+    const normalized = normalizeExercises(exercises);
+    if (!confirm) return preview("create_workout_plan", { ...args, exercises: normalized });
     return guard(async () => {
       const trainerId = await trainerUserId();
       return gql(
         `mutation CW($input: CreateWorkoutPlanInput!) { createWorkoutPlan(input: $input) { _id title } }`,
-        { input: { trainerId, ...args } }
+        { input: { trainerId, ...args, exercises: normalized } }
       );
     });
   }
