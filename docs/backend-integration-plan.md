@@ -34,10 +34,18 @@ from the backend:
     (current `/mcp` body), `GET /` + `DELETE /` → 405, and an optional `GET /health`.
   - Keep the standalone `app.listen()` bootstrap behind an `import.meta.url === entry` guard
     (same pattern as `index.ts`) so `npm run http` still works for local dev.
-- Backend consumes it via one of:
-  1. **npm dependency** — publish `tzilla-mcp` to the private registry / add as a git
-     dependency, `import { mcpRouter } from 'tzilla-mcp/http'`. (Preferred — clean boundary.)
-  2. **vendored** — copy `dist/` into `tzilla-be/src/integrations/mcp/`. (Faster, but drifts.)
+- **DECISION: pinned git dependency** (clean single source of truth, no registry):
+  ```json
+  // tzilla-be/package.json
+  "tzilla-mcp": "github:Trainzilla/tzilla-mcp#<commit-sha>"
+  ```
+  - Requires a `"prepare": "npm run build"` script in `tzilla-mcp` so `dist/` is built on
+    install (dist is gitignored). npm runs `prepare` for git deps with devDeps available.
+  - **Pin to a SHA**, never a branch, so backend deploys can't pull unreviewed MCP changes.
+  - **Prerequisite:** deploy/CI must auth to the private repo (almost certainly already true —
+    the pipeline clones `tzilla-be` from the same org).
+  - **Fallback** (only if private-repo auth in deploy is blocked): vendor `dist/` into
+    `tzilla-be` with a `scripts/sync-mcp.sh` to prevent drift.
 - `tzilla-mcp` must build to ESM/CJS compatible with `tzilla-be`'s `tsc` + `node dist`. Verify
   module format alignment (backend is CJS-ish via ts-node/tsc; tzilla-mcp is `"type": "module"`).
   **Action item:** confirm interop or expose a CJS build target for the router entry.
@@ -205,5 +213,5 @@ All read through the existing `assertions.getStringPropOrThrowErr` pattern in `c
 - **Self-call latency** (Option A) — acceptable for MVP; measure, upgrade to B if needed.
 - **Streaming** — staying stateless (no SSE) avoids sticky-session/load-balancer work; confirm
   no MCP feature we need requires server-initiated streams.
-- **Scope on keys** — Phase-4 read-vs-write scopes not in this plan; until then a `tz_` key can
-  call write tools. Decide whether to gate writes behind a scope before public rollout.
+- **Scope on keys** — DECISION: keys are **read-write** (no scopes) for now. A `tz_` key can call
+  write tools; safety relies on the confirm-gated write tools. Revisit scopes later if needed.
