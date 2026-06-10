@@ -54,13 +54,17 @@ export function mcpRouter(): Router {
   });
 
   router.post("/", async (req: Request, res: Response) => {
+    // Accept any bearer credential and forward it to the GraphQL API, which
+    // authenticates both Trainzilla API keys ("tz_...") and OAuth access tokens.
+    // We don't gate on a prefix here so the OAuth flow works end-to-end; the
+    // backend is the single source of truth for credential validation.
     const key = readApiKey(req);
-    if (!key || !key.startsWith("tz_")) {
+    if (!key) {
       return rpcError(
         res,
         401,
         -32001,
-        "Missing/invalid Trainzilla API key. Send 'Authorization: Bearer tz_...'.",
+        "Missing credentials. Send 'Authorization: Bearer <token>' — a Trainzilla API key (tz_...) or an OAuth access token.",
       );
     }
 
