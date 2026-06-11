@@ -39,6 +39,7 @@ async function trainerUserId(): Promise<string> {
 }
 
 const WORKOUT_SECTIONS = ["WARMUP", "RESISTANCE", "STRETCHING", "CARDIO", "COOL_DOWN"];
+const READ_ONLY = { readOnlyHint: true } as const;
 
 /** Coerce loose exercise objects into valid ExerciseInput: known section + required numeric fields. */
 function normalizeExercises(exercises: Record<string, unknown>[]): Record<string, unknown>[] {
@@ -64,6 +65,7 @@ export function registerAll(server: McpServer): void {
 server.tool(
   "whoami",
   "Return the authenticated coach (user id, name, email, role) and trainer id. Use to verify the connection.",
+  READ_ONLY,
   async () =>
     guard(() =>
       gql(`query { user { _id name email role } trainer { userId } }`)
@@ -74,6 +76,7 @@ server.tool(
   "list_clients",
   "List the coach's clients (id, name, email). Use the returned _id as clientId/userId for other tools.",
   { pageNumber: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(100).default(50) },
+  READ_ONLY,
   async ({ pageNumber, pageSize }) =>
     guard(() =>
       gql(
@@ -91,6 +94,7 @@ server.tool(
   "get_client_profile",
   "Get a client's fitness profile + computed metrics (BMI, TDEE, recommended calories). Pass the client's user _id.",
   { userId: z.string().min(1) },
+  READ_ONLY,
   async ({ userId }) =>
     guard(() =>
       gql(
@@ -112,6 +116,7 @@ server.tool(
   "list_client_habits",
   "List a client's active habits with today's log and streaks. Pass the client's user _id as clientId.",
   { clientId: z.string().min(1) },
+  READ_ONLY,
   async ({ clientId }) =>
     guard(() =>
       gql(
@@ -134,6 +139,7 @@ server.tool(
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   },
+  READ_ONLY,
   async ({ clientId, startDate, endDate }) =>
     guard(() =>
       gql(
@@ -149,6 +155,7 @@ server.tool(
   "recent_habit_activity",
   "Recent habit completions across all of the coach's clients (newest first).",
   { limit: z.number().int().min(1).max(100).default(20) },
+  READ_ONLY,
   async ({ limit }) =>
     guard(async () => {
       const trainerId = await trainerUserId();
@@ -166,6 +173,7 @@ server.tool(
 server.tool(
   "master_habits",
   "List the coach's reusable Master Habit library.",
+  READ_ONLY,
   async () =>
     guard(async () => {
       const trainerId = await trainerUserId();
@@ -194,6 +202,7 @@ server.tool(
     goal: z.enum(["LOSE_FAT", "MAINTAIN", "GAIN_MUSCLE"]).default("MAINTAIN"),
     bodyFatPct: z.number().min(0).max(70).optional(),
   },
+  READ_ONLY,
   async ({ gender, weightKg, heightCm, age, activity, goal, bodyFatPct }) => {
     const bmr = computeBmr(gender, weightKg, heightCm, age, bodyFatPct);
     const tdee = computeTdee(bmr, activity);
@@ -211,6 +220,7 @@ server.tool(
     proteinPerKg: z.number().positive().optional(),
     fatPerKg: z.number().positive().optional(),
   },
+  READ_ONLY,
   async ({ strategy, calories, weightKg, proteinPerKg, fatPerKg }) =>
     ok(calculateMacros(strategy, calories, weightKg, proteinPerKg, fatPerKg))
 );
@@ -219,6 +229,7 @@ server.tool(
   "calc_1rm",
   "Estimate a 1-rep max (Epley) and %1RM weight suggestions from a working set.",
   { weightKg: z.number().positive(), reps: z.number().int().positive() },
+  READ_ONLY,
   async ({ weightKg, reps }) => {
     const oneRm = computeOneRm(weightKg, reps);
     return ok({ oneRepMaxKg: oneRm, suggestions: weightSuggestions(oneRm) });
@@ -233,6 +244,7 @@ server.tool(
   "list_workout_plans",
   "List a client's workout plans (id, title, dates). Pass the client's user _id.",
   { clientId: z.string().min(1) },
+  READ_ONLY,
   async ({ clientId }) =>
     guard(() =>
       gql(
@@ -248,6 +260,7 @@ server.tool(
   "list_diet_plans",
   "List a client's diet plans (id, title, dates). Pass the client's user _id.",
   { clientId: z.string().min(1) },
+  READ_ONLY,
   async ({ clientId }) =>
     guard(() =>
       gql(
@@ -263,6 +276,7 @@ server.tool(
   "list_checkins",
   "List check-ins for the coach (optionally filtered to one client by user _id).",
   { clientId: z.string().min(1).optional() },
+  READ_ONLY,
   async ({ clientId }) =>
     guard(async () => {
       const trainerId = await trainerUserId();
@@ -279,6 +293,7 @@ server.tool(
   "list_sessions",
   "List sessions — for one client (pass clientId) or all of the coach's clients.",
   { clientId: z.string().min(1).optional() },
+  READ_ONLY,
   async ({ clientId }) =>
     guard(async () => {
       if (clientId) {
@@ -302,6 +317,7 @@ server.tool(
 server.tool(
   "list_subscriptions",
   "List the coach's client subscriptions (id, subscriber = client id, status). Use a subscription _id when scheduling a session.",
+  READ_ONLY,
   async () =>
     guard(async () => {
       const trainerId = await trainerUserId();
@@ -317,6 +333,7 @@ server.tool(
 server.tool(
   "billing_summary",
   "Summarise the coach's payments: total captured amount (minor units), currency, and counts by status.",
+  READ_ONLY,
   async () =>
     guard(async () => {
       const trainerId = await trainerUserId();
