@@ -453,9 +453,13 @@ server.tool(
     if (!confirm) return preview("create_checkin", { clientId, scheduledFor, questions });
     return guard(async () => {
       const trainerId = await trainerUserId();
+      const normalizedQuestions = (questions ?? []).map((q) => ({
+        ...q,
+        id: crypto.randomUUID(),
+      }));
       return gql(
         `mutation CC($input: CreateCheckInInput!) { createCheckIn(input: $input) { _id scheduledFor } }`,
-        { input: { trainerId, clientId, scheduledFor, questions: questions ?? [] } }
+        { input: { trainerId, clientId, scheduledFor, questions: normalizedQuestions } }
       );
     });
   }
