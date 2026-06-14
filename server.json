@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Trainzilla/trainzilla-mcp",
+  "title": "Trainzilla Coach MCP",
+  "description": "Manage clients, plans, sessions, habits, and billing on Trainzilla via one-click OAuth.",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/Trainzilla/tzilla-mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.tzilla.live/mcp"
+    }
+  ]
+}
