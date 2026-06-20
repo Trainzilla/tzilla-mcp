@@ -27,8 +27,50 @@ function loadDotEnv(): void {
 
 loadDotEnv();
 
+function firstDefinedEnv(keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function normalizeEnvironment(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const value = raw.trim().toLowerCase();
+
+  if (["prod", "production", "live"].includes(value)) return "production";
+  if (["stage", "staging", "qa", "beta"].includes(value)) return "staging";
+  if (["dev", "development", "local"].includes(value)) return "development";
+  if (value === "test") return "test";
+
+  return value;
+}
+
+function resolveDefaultApiUrl(): string {
+  const explicitApiUrl = process.env.TZ_API_URL?.trim();
+  if (explicitApiUrl) return explicitApiUrl;
+
+  const environment = normalizeEnvironment(
+    firstDefinedEnv([
+      "TZ_ENVIRONMENT",
+      "TZ_APP_ENV",
+      "TRAINZILLA_ENV",
+      "APP_ENV",
+      "TZ_API_ENV",
+      "NODE_ENV",
+    ])
+  );
+
+  if (environment === "staging") {
+    return "https://qa-be2.tzilla.live/graphql";
+  }
+
+  return "https://api.tzilla.live/graphql";
+}
+
 export const config = {
-  apiUrl: process.env.TZ_API_URL?.trim() || "https://api.tzilla.live/graphql",
+  apiUrl: resolveDefaultApiUrl(),
   accessToken: process.env.TZ_ACCESS_TOKEN?.trim() || "",
   refreshToken: process.env.TZ_REFRESH_TOKEN?.trim() || "",
 };

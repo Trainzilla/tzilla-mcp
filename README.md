@@ -68,6 +68,10 @@ The server auto-refreshes the access token via `refreshAccessToken` when it expi
 ## Auth modes
 
 - **stdio:** uses `TZ_ACCESS_TOKEN` (+ `TZ_REFRESH_TOKEN`) from env; auto-refreshes.
+- Endpoint selection:
+  - `TZ_API_URL` wins when set.
+  - Otherwise `TZ_ENVIRONMENT=staging` uses `https://qa-be2.tzilla.live/graphql`.
+  - All other cases default to `https://api.tzilla.live/graphql`.
 - **HTTP:** **pass-through** — each request must send the coach's **API key**
   (`Authorization: Bearer tz_...` or `x-api-key`). The server never stores tokens;
   it forwards the caller's key to the GraphQL API, so the backend enforces scope
