@@ -39,6 +39,7 @@ async function trainerUserId(): Promise<string> {
 }
 
 const WORKOUT_SECTIONS = ["WARMUP", "RESISTANCE", "STRETCHING", "CARDIO", "COOL_DOWN"];
+const WEEKDAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const;
 const READ_ONLY = { readOnlyHint: true } as const;
 
 /** Coerce loose exercise objects into valid ExerciseInput: known section + required numeric fields. */
@@ -53,6 +54,144 @@ function normalizeExercises(exercises: Record<string, unknown>[]): Record<string
     e.restSeconds = Number(e.restSeconds) >= 0 ? Number(e.restSeconds) : 60;
     e.order = Number(e.order) > 0 ? Number(e.order) : i + 1;
     return e;
+  });
+}
+
+const DIET_SECTION_DEFAULTS = new Map<string, { section?: string; scheduledTime: string }>([
+  ["BREAKFAST", { section: "BREAKFAST", scheduledTime: "08:00" }],
+  ["MORNING_SNACK", { section: "MID_MORNING_SNACKS", scheduledTime: "11:00" }],
+  ["MID_MORNING_SNACK", { section: "MID_MORNING_SNACKS", scheduledTime: "11:00" }],
+  ["MID_MORNING_SNACKS", { section: "MID_MORNING_SNACKS", scheduledTime: "11:00" }],
+  ["LUNCH", { section: "LUNCH", scheduledTime: "13:00" }],
+  ["AFTERNOON_SNACK", { section: "EVENING_SNACKS", scheduledTime: "17:00" }],
+  ["EVENING_SNACK", { section: "EVENING_SNACKS", scheduledTime: "17:00" }],
+  ["EVENING_SNACKS", { section: "EVENING_SNACKS", scheduledTime: "17:00" }],
+  ["SNACK", { section: "EVENING_SNACKS", scheduledTime: "17:00" }],
+  ["DINNER", { section: "DINNER", scheduledTime: "20:00" }],
+  ["BEDTIME_SNACK", { section: "BEDTIME_SNACKS", scheduledTime: "22:00" }],
+  ["BEDTIME_SNACKS", { section: "BEDTIME_SNACKS", scheduledTime: "22:00" }],
+  ["OTHER", { section: "OTHER_SUPPLEMENTS", scheduledTime: "16:00" }],
+  ["SUPPLEMENT", { section: "OTHER_SUPPLEMENTS", scheduledTime: "16:00" }],
+  ["SUPPLEMENTS", { section: "OTHER_SUPPLEMENTS", scheduledTime: "16:00" }],
+  ["OTHER_SUPPLEMENTS", { section: "OTHER_SUPPLEMENTS", scheduledTime: "16:00" }],
+  ["PRE_WORKOUT", { section: "OTHER_SUPPLEMENTS", scheduledTime: "16:00" }],
+  ["POST_WORKOUT", { section: "OTHER_SUPPLEMENTS", scheduledTime: "18:00" }],
+]);
+
+const dietMealSchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().optional(),
+    calories: z.number().positive().optional(),
+    macros: z
+      .object({
+        protein: z.number().optional(),
+        carbs: z.number().optional(),
+        fat: z.number().optional(),
+        fiber: z.number().optional(),
+        sugar: z.number().optional(),
+        sodiumMg: z.number().optional(),
+        cholesterolMg: z.number().optional(),
+        alcoholG: z.number().optional(),
+        portionSizeG: z.number().optional(),
+      })
+      .optional(),
+    scheduledTime: z.string().optional().describe("Preferred format HH:mm"),
+    order: z.number().int().positive().optional(),
+    section: z.string().optional(),
+    slot: z.string().optional().describe("Legacy alias: BREAKFAST, LUNCH, DINNER, SNACK, etc."),
+    days: z.array(z.string()).optional().describe("[MONDAY..SUNDAY], defaults to every day"),
+    recipeUrl: z.string().optional(),
+    avatarUrl: z.string().optional(),
+  })
+  .passthrough();
+
+function normalizeDietKey(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  const normalized = String(value ?? "").trim();
+  return normalized ? normalized : undefined;
+}
+
+function normalizeOptionalNumber(value: unknown): number | undefined {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function normalizeMealDays(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [...WEEKDAYS];
+  }
+
+  const normalized = value
+    .map((day) => normalizeDietKey(day))
+    .filter((day): day is (typeof WEEKDAYS)[number] => WEEKDAYS.includes(day as (typeof WEEKDAYS)[number]));
+
+  return normalized.length ? normalized : [...WEEKDAYS];
+}
+
+function normalizeMealMacros(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const protein = normalizeOptionalNumber(record.protein);
+  const carbs = normalizeOptionalNumber(record.carbs);
+  const fat = normalizeOptionalNumber(record.fat);
+  if (protein == null || carbs == null || fat == null) {
+    return undefined;
+  }
+
+  const normalized: Record<string, number> = { protein, carbs, fat };
+  for (const key of ["fiber", "sugar", "sodiumMg", "cholesterolMg", "alcoholG", "portionSizeG"] as const) {
+    const numeric = normalizeOptionalNumber(record[key]);
+    if (numeric != null) {
+      normalized[key] = numeric;
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeDietMeals(meals: Record<string, unknown>[]): Record<string, unknown>[] {
+  return meals.map((raw, index) => {
+    const legacyKey = normalizeDietKey(raw.slot ?? raw.section);
+    const defaults = DIET_SECTION_DEFAULTS.get(legacyKey);
+    const scheduledTime = normalizeOptionalString(raw.scheduledTime) ?? defaults?.scheduledTime ?? "12:00";
+    const section = normalizeOptionalString(raw.section) ?? defaults?.section;
+
+    const normalized: Record<string, unknown> = {
+      name: normalizeOptionalString(raw.name) ?? `Meal ${index + 1}`,
+      scheduledTime,
+      order: Number(raw.order) > 0 ? Number(raw.order) : index + 1,
+      days: normalizeMealDays(raw.days),
+    };
+
+    if (section) normalized.section = section;
+
+    const description = normalizeOptionalString(raw.description);
+    if (description) normalized.description = description;
+
+    const calories = normalizeOptionalNumber(raw.calories);
+    if (calories != null) normalized.calories = calories;
+
+    const macros = normalizeMealMacros(raw.macros);
+    if (macros) normalized.macros = macros;
+
+    const recipeUrl = normalizeOptionalString(raw.recipeUrl);
+    if (recipeUrl) normalized.recipeUrl = recipeUrl;
+
+    const avatarUrl = normalizeOptionalString(raw.avatarUrl);
+    if (avatarUrl) normalized.avatarUrl = avatarUrl;
+
+    return normalized;
   });
 }
 
@@ -522,22 +661,23 @@ server.tool(
 
 server.tool(
   "create_diet_plan",
-  "Create a diet plan for a client (confirm-gated). meals: array of MealInput objects (e.g. { name, slot, calories, macros, days }).",
+  "Create a diet plan for a client (confirm-gated). Prefer meals like { name, scheduledTime: 'HH:mm', order, days: [MONDAY..SUNDAY], section, calories, macros }. Legacy slot values like BREAKFAST/LUNCH/DINNER/SNACK are accepted and auto-mapped.",
   {
     clientId: z.string().min(1),
     title: z.string().min(1),
     startDate: z.string().min(1).describe("YYYY-MM-DD"),
     endDate: z.string().optional(),
-    meals: z.array(z.record(z.unknown())).min(1),
+    meals: z.array(dietMealSchema).min(1),
     ...confirmField,
   },
-  async ({ confirm, ...args }) => {
-    if (!confirm) return preview("create_diet_plan", args);
+  async ({ confirm, meals, ...args }) => {
+    const normalizedMeals = normalizeDietMeals(meals as Record<string, unknown>[]);
+    if (!confirm) return preview("create_diet_plan", { ...args, meals: normalizedMeals });
     return guard(async () => {
       const trainerId = await trainerUserId();
       return gql(
         `mutation CD($input: CreateDietPlanInput!) { createDietPlan(input: $input) { _id title } }`,
-        { input: { trainerId, ...args } }
+        { input: { trainerId, ...args, meals: normalizedMeals } }
       );
     });
   }
