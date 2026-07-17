@@ -252,6 +252,29 @@ server.tool(
 );
 
 server.tool(
+  "search_exercises",
+  "Search the exercise catalog by free-text name (e.g. 'barbell squat'). Returns real catalog exercises with an id. " +
+    "Call this for each exercise before create_workout_plan and, when there's one confident match, use its exact id " +
+    "as that exercise's exerciseId and its name as the exercise name — the app resolves the image/video from exerciseId " +
+    "automatically, so a matched exerciseId is what makes the exercise show media in the app. If nothing confidently " +
+    "matches, fall back to a plain name with no exerciseId.",
+  { query: z.string().min(1), limit: z.number().int().min(1).max(20).default(8) },
+  READ_ONLY,
+  async ({ query, limit }) =>
+    guard(() =>
+      gql(
+        `query SearchExercises($query: String!, $limit: Int) {
+           searchExercises(query: $query, limit: $limit) {
+             id name bodyPart target equipment
+             previewImage { url }
+           }
+         }`,
+        { query, limit }
+      )
+    )
+);
+
+server.tool(
   "list_client_habits",
   "List a client's active habits with today's log and streaks. Pass the client's user _id as clientId.",
   { clientId: z.string().min(1) },
@@ -677,8 +700,10 @@ server.tool(
 
 server.tool(
   "create_workout_plan",
-  "Create a workout plan for a client (confirm-gated). exercises: array of { name, sets, reps, restSeconds?, section? }. " +
+  "Create a workout plan for a client (confirm-gated). exercises: array of { name, sets, reps, restSeconds?, section?, exerciseId?, notes? }. " +
     "section must be one of WARMUP | RESISTANCE | STRETCHING | CARDIO | COOL_DOWN (defaults to RESISTANCE so the app renders them under 'Main Workout'). " +
+    "exerciseId: pass the id from search_exercises when there's a confident catalog match — this is what makes the exercise show an image/video to the client. " +
+    "notes: one short sentence explaining why this exercise is in the plan — shown to the client under the exercise. " +
     "days: optional [MONDAY..SUNDAY].",
   {
     clientId: z.string().min(1),
@@ -705,7 +730,9 @@ server.tool(
 
 server.tool(
   "create_diet_plan",
-  "Create a diet plan for a client (confirm-gated). Prefer meals like { name, scheduledTime: 'HH:mm', order, days: [MONDAY..SUNDAY], section, calories, macros }. Legacy slot values like BREAKFAST/LUNCH/DINNER/SNACK are accepted and auto-mapped.",
+  "Create a diet plan for a client (confirm-gated). Prefer meals like { name, scheduledTime: 'HH:mm', order, days: [MONDAY..SUNDAY], section, calories, macros, description }. " +
+    "description: one short sentence explaining why this meal is included — shown to the client under the meal. " +
+    "Legacy slot values like BREAKFAST/LUNCH/DINNER/SNACK are accepted and auto-mapped.",
   {
     clientId: z.string().min(1),
     title: z.string().min(1),
