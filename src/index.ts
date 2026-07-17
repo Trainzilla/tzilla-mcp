@@ -435,6 +435,24 @@ server.tool(
 );
 
 server.tool(
+  "get_client_ai_history",
+  "Check this client's past AI Coach runs before building or adjusting their plan. If a past run's status is 'failed', its error field is the coach's rejection reason — treat that as a hard constraint and don't repeat whatever it flagged. Call this before create_workout_plan/create_diet_plan.",
+  { clientId: z.string().min(1), limit: z.number().int().min(1).max(20).default(5) },
+  READ_ONLY,
+  async ({ clientId, limit }) =>
+    guard(() =>
+      gql(
+        `query ClientAIHistory($clientId: ID!, $limit: Int) {
+           aiRunHistoryForClient(clientId: $clientId, limit: $limit) {
+             _id type status error reviewedAt createdAt retryOfRunId
+           }
+         }`,
+        { clientId, limit }
+      )
+    )
+);
+
+server.tool(
   "list_checkins",
   "List check-ins for the coach (optionally filtered to one client by user _id).",
   { clientId: z.string().min(1).optional() },
