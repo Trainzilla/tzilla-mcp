@@ -472,6 +472,25 @@ server.tool(
 );
 
 server.tool(
+  "get_recovery_signals",
+  "Check this client's synced Apple Health / Google Fit sleep and resting-heart-rate trend, if any. " +
+    "This is a secondary caution alongside get_client_ai_history and get_platform_rejection_trends, not a hard constraint: if sleepTrend is 'declining' or restingHRTrend is 'elevated', default toward slightly lower volume/intensity this run unless the client's own profile, preferences, or check-ins clearly argue otherwise. If hasData is false, the client has no synced health data yet — ignore this signal entirely and build/adjust normally.",
+  { clientId: z.string().min(1), days: z.number().int().min(1).max(90).default(14) },
+  READ_ONLY,
+  async ({ clientId, days }) =>
+    guard(() =>
+      gql(
+        `query RecoverySignals($clientId: ID!, $days: Int) {
+           recoverySignalSummary(clientId: $clientId, days: $days) {
+             hasData daysWithData avgSleepMinutes avgRestingHeartRate sleepTrend restingHRTrend summary
+           }
+         }`,
+        { clientId, days }
+      )
+    )
+);
+
+server.tool(
   "list_checkins",
   "List check-ins for the coach (optionally filtered to one client by user _id).",
   { clientId: z.string().min(1).optional() },
