@@ -429,6 +429,50 @@ server.tool(
 );
 
 server.tool(
+  "get_checkin_answers",
+  "Get a check-in's questions + latest answers. PHOTO-type answers are resolved to fetchable image URLs — pass those into get_client_images to actually view them.",
+  { checkInId: z.string().min(1) },
+  READ_ONLY,
+  async ({ checkInId }) =>
+    guard(() =>
+      gql(
+        `query CheckInAnswers($checkInId: ID!) {
+           checkIn: checkInById(id: $checkInId) { _id clientId scheduledFor questions { id type label required } }
+           logs: checkInLogs(checkInId: $checkInId) { answers { questionId value } createdAt }
+           photoAnswers: checkInPhotoAnswers(checkInId: $checkInId) { questionId label imageUrl }
+         }`,
+        { checkInId }
+      )
+    )
+);
+
+server.tool(
+  "get_client_images",
+  "Fetch check-in photo(s) and return base64-encoded image data for visual analysis. Pass imageUrl(s) from get_checkin_answers's photoAnswers.",
+  { imageUrls: z.array(z.string().min(1)).min(1).max(10) },
+  READ_ONLY,
+  async ({ imageUrls }) =>
+    guard(async () => {
+      const results = await Promise.all(
+        imageUrls.map(async (imageUrl) => {
+          try {
+            const res = await fetch(imageUrl);
+            if (!res.ok) {
+              return { imageUrl, error: `HTTP ${res.status}` };
+            }
+            const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+            const buffer = Buffer.from(await res.arrayBuffer());
+            return { imageUrl, contentType, base64: buffer.toString("base64") };
+          } catch (e) {
+            return { imageUrl, error: e instanceof Error ? e.message : String(e) };
+          }
+        })
+      );
+      return { images: results };
+    })
+);
+
+server.tool(
   "list_sessions",
   "List sessions — for one client (pass clientId) or all of the coach's clients.",
   { clientId: z.string().min(1).optional() },
