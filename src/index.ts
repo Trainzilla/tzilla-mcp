@@ -453,6 +453,25 @@ server.tool(
 );
 
 server.tool(
+  "get_platform_rejection_trends",
+  "Check what coaches across the whole platform have been rejecting recently, as category counts (never any client's raw rejection text — this is a general pattern, not client-specific data). " +
+    "Use this as a secondary caution alongside get_client_ai_history, not a hard constraint: if one category is clearly dominant (e.g. over 30% of recent rejections), be a bit more conservative in that area by default, unless this client's own profile or history argues otherwise. This client's own data always takes priority over this platform-wide signal.",
+  { sinceDays: z.number().int().min(1).max(90).default(30) },
+  READ_ONLY,
+  async ({ sinceDays }) =>
+    guard(() =>
+      gql(
+        `query PlatformRejectionTrends($sinceDays: Int) {
+           aiRejectionTrends(sinceDays: $sinceDays) {
+             category count percentage
+           }
+         }`,
+        { sinceDays }
+      )
+    )
+);
+
+server.tool(
   "list_checkins",
   "List check-ins for the coach (optionally filtered to one client by user _id).",
   { clientId: z.string().min(1).optional() },
