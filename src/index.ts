@@ -253,11 +253,13 @@ server.tool(
 
 server.tool(
   "search_exercises",
-  "Search the exercise catalog by free-text name (e.g. 'barbell squat'). Returns real catalog exercises with an id. " +
-    "Call this for each exercise before create_workout_plan and, when there's one confident match, use its exact id " +
-    "as that exercise's exerciseId and its name as the exercise name — the app resolves the image/video from exerciseId " +
-    "automatically, so a matched exerciseId is what makes the exercise show media in the app. If nothing confidently " +
-    "matches, fall back to a plain name with no exerciseId.",
+  "Search the exercise catalog by free-text name (e.g. 'barbell squat'). Returns real catalog exercises with an id, " +
+    "sorted by matchConfidence (0-1, fraction of your query's words found on that catalog entry). " +
+    "Call this for each exercise before create_workout_plan. Use the top result's exact id as that exercise's exerciseId " +
+    "and its name as the exercise name only when its matchConfidence is high (roughly 0.7+) — the app resolves the " +
+    "image/video from exerciseId automatically, so a matched exerciseId is what makes the exercise show media in the app. " +
+    "If every result has low matchConfidence, or there are no results at all, don't guess — fall back to a plain name " +
+    "with no exerciseId rather than linking a wrong exercise's image.",
   { query: z.string().min(1), limit: z.number().int().min(1).max(20).default(8) },
   READ_ONLY,
   async ({ query, limit }) =>
@@ -265,7 +267,7 @@ server.tool(
       gql(
         `query SearchExercises($query: String!, $limit: Int) {
            searchExercises(query: $query, limit: $limit) {
-             id name bodyPart target equipment
+             id name bodyPart target equipment matchConfidence
              previewImage { url }
            }
          }`,
