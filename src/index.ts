@@ -696,6 +696,47 @@ server.tool(
   }
 );
 
+const rationaleFigure = z.object({
+  label: z.string().min(1).describe('e.g. "Avg sleep", "TDEE", "Weight"'),
+  value: z.string().min(1).describe('e.g. "5.4 h", "2,340 kcal", "78.4 kg"'),
+  note: z.string().optional().describe('context, e.g. "down from 7.1 h last week"'),
+});
+
+server.tool(
+  "record_plan_rationale",
+  "Record the coach-voice explanation of the AI Coach run you are performing for this client — what you looked at, what you changed and why, and the numbers behind it. " +
+    "This is exactly what the client reads on their 'Why this changed' screen, so write it like a human coach speaking to them: plain language, their real figures, no tool names, no mention of steps or systems. " +
+    "Call this once, after you have created or adjusted their plans.",
+  {
+    clientId: z.string().min(1),
+    headline: z
+      .string()
+      .min(1)
+      .describe('One sentence on the intent, e.g. "Eased off lower body this week so you actually recover."'),
+    inputs: z
+      .array(rationaleFigure)
+      .optional()
+      .describe("The real figures you based the decision on (check-ins, recovery, compliance, measurements)."),
+    changes: z
+      .array(z.object({ what: z.string().min(1), why: z.string().min(1) }))
+      .optional()
+      .describe('Each concrete change and its reason, e.g. what: "Squats 5x5 to 3x5", why: "Sleep dropped and resting HR climbed."'),
+    math: z
+      .array(rationaleFigure)
+      .optional()
+      .describe("Calculations behind the plan (TDEE, macro targets, deficits) so the client sees it was worked out, not guessed."),
+  },
+  async ({ clientId, ...input }) =>
+    guard(() =>
+      gql(
+        `mutation R($clientId: ID!, $input: RecordAICoachRunRationaleInput!) {
+           recordAICoachRunRationale(clientId: $clientId, input: $input)
+         }`,
+        { clientId, input }
+      )
+    )
+);
+
 server.tool(
   "create_checkin",
   "Schedule a check-in for a client with optional questions (confirm-gated). scheduledFor: ISO date. question.type: TEXT|NUMBER|SCALE|PHOTO.",
