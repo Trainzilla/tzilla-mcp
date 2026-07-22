@@ -771,6 +771,60 @@ server.tool(
 );
 
 server.tool(
+  "schedule_checkin",
+  "Set a recurring weekly check-in schedule for a client (confirm-gated). " +
+    "The backend will auto-create a check-in on the chosen day+time each week. " +
+    "dayOfWeek: 0=Sun … 6=Sat. timeOfDay: HH:MM 24-hour. " +
+    "Provide _id to update an existing schedule; omit to create a new one. " +
+    "question.type: TEXT|NUMBER|SCALE|PHOTO.",
+  {
+    clientId: z.string().min(1),
+    dayOfWeek: z.number().int().min(0).max(6).describe("0=Sunday, 1=Monday … 6=Saturday"),
+    timeOfDay: z.string().regex(/^\d{2}:\d{2}$/).describe("HH:MM in 24-hour format, e.g. 09:00"),
+    isActive: z.boolean().optional().default(true),
+    questions: z
+      .array(
+        z.object({
+          type: z.enum(["TEXT", "NUMBER", "SCALE", "PHOTO"]),
+          label: z.string().min(1),
+          required: z.boolean().optional(),
+        })
+      )
+      .optional(),
+    scheduleId: z.string().min(1).optional().describe("Provide to update an existing schedule"),
+    ...confirmField,
+  },
+  async ({ confirm, clientId, dayOfWeek, timeOfDay, isActive, questions, scheduleId }) => {
+    const preview_data = { clientId, dayOfWeek, timeOfDay, isActive, questions, scheduleId };
+    if (!confirm) return preview("schedule_checkin", preview_data);
+    return guard(async () => {
+      const normalizedQuestions = (questions ?? []).map((q) => ({
+        ...q,
+        id: crypto.randomUUID(),
+      }));
+      return gql(
+        `mutation USC($input: UpsertCheckInScheduleInput!) {
+           upsertCheckInSchedule(input: $input) {
+             _id clientId dayOfWeek timeOfDay isActive
+             questions { id type label required }
+           }
+         }`,
+        {
+          input: {
+            ...(scheduleId ? { _id: scheduleId } : {}),
+            clientId,
+            dayOfWeek,
+            timeOfDay,
+            isActive,
+            questions: normalizedQuestions,
+          },
+        }
+      );
+    });
+  }
+);
+
+server.tool(
   "schedule_session",
   "Book a session for a client (confirm-gated). Needs the client's subscriptionId (see list_subscriptions). Times are ISO strings.",
   {
