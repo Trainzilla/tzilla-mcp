@@ -437,6 +437,29 @@ server.tool(
 );
 
 server.tool(
+  "get_client_preferences",
+  "The client's own stated constraints — diet type, food allergies, cuisines, meals per day, cooking level, which days they can train, home vs gym, what equipment they actually have, preferred time and session length, plus free-text notes. " +
+    "These are hard constraints, not suggestions: a diet plan that violates dietType, foodAllergies or mealsPerDay is rejected outright by the server, and a workout plan built for equipment they don't own is unusable. " +
+    "Call this BEFORE create_workout_plan/create_diet_plan on every run, including weekly adjustments — clients change these between runs, and the previous plan does not tell you what they say today. Returns null if they have not set any.",
+  { clientId: z.string().min(1) },
+  READ_ONLY,
+  async ({ clientId }) =>
+    guard(() =>
+      gql(
+        `query ClientPreferences($userId: ID!) {
+           aiCoachPreferencesForUser(userId: $userId) {
+             dietType foodAllergies cuisinePreferences mealsPerDay cookingLevel
+             availableWorkoutDays workoutLocation availableEquipment
+             preferredWorkoutTime workoutDurationMins
+             exerciseNotes dietNotes updatedAt
+           }
+         }`,
+        { userId: clientId }
+      )
+    )
+);
+
+server.tool(
   "get_client_ai_history",
   "Check this client's past AI Coach runs before building or adjusting their plan. If a past run's status is 'failed', its error field is the coach's rejection reason — treat that as a hard constraint and don't repeat whatever it flagged. Call this before create_workout_plan/create_diet_plan.",
   { clientId: z.string().min(1), limit: z.number().int().min(1).max(20).default(5) },
