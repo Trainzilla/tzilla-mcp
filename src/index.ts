@@ -39,6 +39,7 @@ async function trainerUserId(): Promise<string> {
 }
 
 const WORKOUT_SECTIONS = ["WARMUP", "RESISTANCE", "STRETCHING", "CARDIO", "COOL_DOWN"];
+const MODALITIES = ["STRENGTH", "INTERVAL", "STEADY", "AMRAP", "EMOM", "FOR_TIME", "HOLD"];
 const WEEKDAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const;
 const READ_ONLY = { readOnlyHint: true } as const;
 
@@ -53,6 +54,23 @@ function normalizeExercises(exercises: Record<string, unknown>[]): Record<string
     e.reps = Number(e.reps) > 0 ? Number(e.reps) : 10;
     e.restSeconds = Number(e.restSeconds) >= 0 ? Number(e.restSeconds) : 60;
     e.order = Number(e.order) > 0 ? Number(e.order) : i + 1;
+
+    // Off-strength prescriptions: a run is distance and pace, an AMRAP a time
+    // cap. sets/reps above stay populated because the schema requires them,
+    // but these carry the real prescription.
+    const mod = String(e.modality ?? "").toUpperCase().replace(/[\s-]+/g, "_");
+    if (MODALITIES.includes(mod)) e.modality = mod;
+    else delete e.modality;
+    for (const key of ["rounds", "durationSeconds", "distanceMeters", "recoverySeconds"] as const) {
+      const n = Number(e[key]);
+      if (Number.isFinite(n) && n > 0) e[key] = n;
+      else delete e[key];
+    }
+    for (const key of ["targetPace", "effort"] as const) {
+      const v = String(e[key] ?? "").trim();
+      if (v) e[key] = v;
+      else delete e[key];
+    }
     return e;
   });
 }
@@ -315,6 +333,34 @@ server.tool(
            }
          }`,
         { query, limit }
+      )
+    )
+);
+
+server.tool(
+  "get_training_split",
+  "Named training programme templates (Full-Body, PPL, Upper/Lower, 5x5, powerlifting peaking, HYROX, CrossFit metcon, hybrid athlete, Couch-to-5K, half/marathon, calisthenics, home minimal, senior, prenatal) with their day-by-day structure, who they suit, the progression rule and the cautions. " +
+    "Call this BEFORE create_workout_plan so the week is built on a real, named structure instead of one improvised from scratch. " +
+    "Search by name ('hyrox', 'ppl', 'couch to 5k') or by goal + daysPerWeek + experience. Each day lists the modalities it should use — build those sessions with matching modality on each exercise, never sets/reps for a run.",
+  {
+    query: z.string().optional().describe("Programme name, e.g. 'hyrox', 'ppl', 'marathon'"),
+    daysPerWeek: z.number().int().min(1).max(7).optional(),
+    experience: z.string().optional().describe("BEGINNER | INTERMEDIATE | ADVANCED"),
+    goal: z.string().optional().describe("e.g. 'lose fat', 'build muscle', 'endurance'"),
+    limit: z.number().int().min(1).max(20).default(5),
+  },
+  READ_ONLY,
+  async ({ query, daysPerWeek, experience, goal, limit }) =>
+    guard(() =>
+      gql(
+        `query TrainingSplits($query: String, $daysPerWeek: Int, $experience: String, $goal: String, $limit: Int) {
+           trainingSplits(query: $query, daysPerWeek: $daysPerWeek, experience: $experience, goal: $goal, limit: $limit) {
+             key name category daysPerWeek suitsExperience suitsGoals summary
+             days { focus summary modalities }
+             progression cautions matchConfidence
+           }
+         }`,
+        { query, daysPerWeek, experience, goal, limit }
       )
     )
 );
@@ -941,7 +987,9 @@ server.tool(
 
 server.tool(
   "create_workout_plan",
-  "Create a workout plan for a client (confirm-gated). exercises: array of { name, sets, reps, restSeconds?, section?, exerciseId?, notes? }. " +
+  "Create a workout plan for a client (confirm-gated). exercises: array of { name, sets, reps, restSeconds?, section?, exerciseId?, notes?, modality?, ... }. " +
+    "modality selects which parameters actually describe the work: STRENGTH (sets/reps/restSeconds) | INTERVAL (rounds + distanceMeters or durationSeconds + recoverySeconds + targetPace) | STEADY (durationSeconds or distanceMeters + targetPace) | AMRAP or EMOM (durationSeconds as the cap + rounds) | FOR_TIME | HOLD (durationSeconds). " +
+    "Never describe a run as sets and reps: '6 x 400 m at 5k pace, 90 s jog' is modality INTERVAL with rounds 6, distanceMeters 400, recoverySeconds 90, targetPace '5k pace'. Call get_training_split first so the week has a real structure. " +
     "section must be one of WARMUP | RESISTANCE | STRETCHING | CARDIO | COOL_DOWN (defaults to RESISTANCE so the app renders them under 'Main Workout'). " +
     "exerciseId: pass the id from search_exercises when there's a confident catalog match — this is what makes the exercise show an image/video to the client. " +
     "notes: one short sentence explaining why this exercise is in the plan — shown to the client under the exercise. " +
