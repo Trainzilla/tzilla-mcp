@@ -101,6 +101,23 @@ const dietMealSchema = z
     section: z.string().optional(),
     slot: z.string().optional().describe("Legacy alias: BREAKFAST, LUNCH, DINNER, SNACK, etc."),
     days: z.array(z.string()).optional().describe("[MONDAY..SUNDAY], defaults to every day"),
+    ingredients: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1),
+            quantity: z.number().positive(),
+            unit: z.string().optional().describe("g, ml, piece, tbsp — defaults to g"),
+            isCookingAddition: z.boolean().optional().describe("true for oil, ghee, sugar, salt"),
+            calories: z.number().optional(),
+            protein: z.number().optional(),
+            carbs: z.number().optional(),
+            fat: z.number().optional(),
+          })
+          .passthrough(),
+      )
+      .optional()
+      .describe("Raw materials with quantities. Include the cooking fat (oil/ghee) as its own item."),
     recipeUrl: z.string().optional(),
     avatarUrl: z.string().optional(),
   })
@@ -191,8 +208,34 @@ function normalizeDietMeals(meals: Record<string, unknown>[]): Record<string, un
     const avatarUrl = normalizeOptionalString(raw.avatarUrl);
     if (avatarUrl) normalized.avatarUrl = avatarUrl;
 
+    const ingredients = normalizeMealIngredients(raw.ingredients);
+    if (ingredients.length) normalized.ingredients = ingredients;
+
     return normalized;
   });
+}
+
+function normalizeMealIngredients(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((raw) => {
+      const item = (raw ?? {}) as Record<string, unknown>;
+      const name = normalizeOptionalString(item.name);
+      const quantity = normalizeOptionalNumber(item.quantity);
+      if (!name || quantity == null || quantity <= 0) return null;
+      const out: Record<string, unknown> = {
+        name,
+        quantity,
+        unit: normalizeOptionalString(item.unit) ?? "g",
+      };
+      if (typeof item.isCookingAddition === "boolean") out.isCookingAddition = item.isCookingAddition;
+      for (const key of ["calories", "protein", "carbs", "fat"] as const) {
+        const n = normalizeOptionalNumber(item[key]);
+        if (n != null) out[key] = n;
+      }
+      return out;
+    })
+    .filter((x): x is Record<string, unknown> => x != null);
 }
 
 /* ───────────────────────── Registration ───────────────────────── */
@@ -269,6 +312,28 @@ server.tool(
            searchExercises(query: $query, limit: $limit) {
              id name bodyPart target equipment matchConfidence
              previewImage { url }
+           }
+         }`,
+        { query, limit }
+      )
+    )
+);
+
+server.tool(
+  "get_ingredient_nutrition",
+  "Per-100g nutrition (calories, protein, carbs, fat) for raw ingredients, from the platform's curated table. " +
+    "Call this while building a diet plan to itemise each meal into real raw materials with real quantities, instead of guessing per-food macros. " +
+    "Query by plain name ('paneer', 'cooking oil', 'toor dal'); results are ranked by matchConfidence and include a typicalServingG anchor and an isCookingAddition flag. " +
+    "Scale the per-100g figures to your chosen quantity (e.g. 60 g paneer = 60% of the per-100g values). If an ingredient isn't found, estimate sensibly and still list it — never drop the cooking fat.",
+  { query: z.string().min(1), limit: z.number().int().min(1).max(20).default(5) },
+  READ_ONLY,
+  async ({ query, limit }) =>
+    guard(() =>
+      gql(
+        `query IngredientNutrition($query: String!, $limit: Int) {
+           ingredientNutrition(query: $query, limit: $limit) {
+             name category caloriesPer100g proteinPer100g carbsPer100g fatPer100g
+             isCookingAddition typicalServingG matchConfidence
            }
          }`,
         { query, limit }
@@ -906,8 +971,10 @@ server.tool(
 
 server.tool(
   "create_diet_plan",
-  "Create a diet plan for a client (confirm-gated). Prefer meals like { name, scheduledTime: 'HH:mm', order, days: [MONDAY..SUNDAY], section, calories, macros, description }. " +
+  "Create a diet plan for a client (confirm-gated). Prefer meals like { name, scheduledTime: 'HH:mm', order, days: [MONDAY..SUNDAY], section, calories, macros, description, ingredients }. " +
     "description: one short sentence explaining why this meal is included — shown to the client under the meal. " +
+    "ingredients: break every meal into its raw materials with real quantities — e.g. [{ name: 'Paneer', quantity: 60, unit: 'g', calories: 159, protein: 11, carbs: 2, fat: 13 }, { name: 'Cooking oil', quantity: 10, unit: 'ml', isCookingAddition: true, calories: 88, fat: 10 }]. " +
+    "Always include the cooking fat (oil/ghee/butter) as its own ingredient — it is easy to forget and adds real calories. Use get_ingredient_nutrition for the numbers, and make the ingredient calories/macros sum roughly to the meal's calories/macros. " +
     "Legacy slot values like BREAKFAST/LUNCH/DINNER/SNACK are accepted and auto-mapped.",
   {
     clientId: z.string().min(1),
