@@ -1045,6 +1045,173 @@ server.tool(
   }
 );
 
+/* ───────────── Edit / manage existing records (confirm-gated) ─────────────
+ * These close the loop so the agent can maintain a client's programme, not
+ * only create it: adjust or swap parts of a plan, retire a plan, tweak a
+ * habit, move or cancel a session. Every one previews first and only mutates
+ * with confirm: true, exactly like the create tools. */
+
+server.tool(
+  "update_workout_plan",
+  "Edit an existing workout plan (confirm-gated). Pass planId plus only the fields to change. " +
+    "exercises, if given, REPLACES the whole exercise list — send the full intended list, not just the changed ones; to change a single slot use swap_workout_exercise instead. " +
+    "Each exercise follows the same shape as create_workout_plan (name, sets, reps, restSeconds?, section?, exerciseId?, notes?, modality?, …). days: optional [MONDAY..SUNDAY].",
+  {
+    planId: z.string().min(1),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    exercises: z.array(z.record(z.unknown())).optional(),
+    days: z.array(z.string()).optional(),
+    startDate: z.string().optional().describe("YYYY-MM-DD"),
+    endDate: z.string().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, exercises, ...args }) => {
+    const input = {
+      ...args,
+      ...(exercises ? { exercises: normalizeExercises(exercises) } : {}),
+    };
+    if (!confirm) return preview("update_workout_plan", input);
+    return guard(() =>
+      gql(`mutation UW($input: UpdateWorkoutPlanInput!) { updateWorkoutPlan(input: $input) { _id title } }`, { input })
+    );
+  }
+);
+
+server.tool(
+  "swap_workout_exercise",
+  "Replace a single exercise in a workout plan by its order (confirm-gated) — the surgical alternative to update_workout_plan. " +
+    "exerciseOrder is the `order` of the slot to replace (see list_workout_plans). newExercise is one exercise in the create_workout_plan shape; carry over exerciseId from search_exercises when there's a catalog match.",
+  {
+    planId: z.string().min(1),
+    exerciseOrder: z.number().int(),
+    newExercise: z.record(z.unknown()),
+    ...confirmField,
+  },
+  async ({ confirm, planId, exerciseOrder, newExercise }) => {
+    const normalized = normalizeExercises([newExercise])[0];
+    if (!confirm) return preview("swap_workout_exercise", { planId, exerciseOrder, newExercise: normalized });
+    return guard(() =>
+      gql(
+        `mutation SW($planId: ID!, $exerciseOrder: Int!, $newExercise: ExerciseInput!) {
+           swapWorkoutPlanExercise(planId: $planId, exerciseOrder: $exerciseOrder, newExercise: $newExercise) { _id title }
+         }`,
+        { planId, exerciseOrder, newExercise: normalized }
+      )
+    );
+  }
+);
+
+server.tool(
+  "delete_workout_plan",
+  "Delete a workout plan for good (confirm-gated). The client loses access to it — prefer editing unless the coach clearly wants it gone.",
+  { planId: z.string().min(1), ...confirmField },
+  async ({ confirm, planId }) => {
+    if (!confirm) return preview("delete_workout_plan", { planId });
+    return guard(() => gql(`mutation DW($planId: ID!) { deleteWorkoutPlan(planId: $planId) }`, { planId }));
+  }
+);
+
+server.tool(
+  "update_diet_plan",
+  "Edit an existing diet plan (confirm-gated). Pass planId plus only the fields to change. " +
+    "meals, if given, REPLACES the whole meal list — send the full intended list. Each meal follows the create_diet_plan shape (name, scheduledTime 'HH:mm', order, days, section, calories, macros, description, ingredients).",
+  {
+    planId: z.string().min(1),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    meals: z.array(dietMealSchema).optional(),
+    startDate: z.string().optional().describe("YYYY-MM-DD"),
+    endDate: z.string().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, planId, meals, ...rest }) => {
+    const input = {
+      ...rest,
+      ...(meals ? { meals: normalizeDietMeals(meals as Record<string, unknown>[]) } : {}),
+    };
+    if (!confirm) return preview("update_diet_plan", { planId, ...input });
+    return guard(() =>
+      gql(`mutation UD($planId: ID!, $input: UpdateDietPlanInput!) { updateDietPlan(planId: $planId, input: $input) { _id title } }`, {
+        planId,
+        input,
+      })
+    );
+  }
+);
+
+server.tool(
+  "delete_diet_plan",
+  "Delete a diet plan for good (confirm-gated). The client loses access to it — prefer editing unless the coach clearly wants it gone.",
+  { planId: z.string().min(1), ...confirmField },
+  async ({ confirm, planId }) => {
+    if (!confirm) return preview("delete_diet_plan", { planId });
+    return guard(() => gql(`mutation DD($planId: ID!) { deleteDietPlan(planId: $planId) }`, { planId }));
+  }
+);
+
+server.tool(
+  "update_habit",
+  "Edit a client's habit (confirm-gated). Pass habitId plus only the fields to change. " +
+    "frequency: DAILY | WEEKLY | SPECIFIC_DAYS. tracker: CHECKBOX | STEPS | WATER | COUNTER. category is a HabitCategory. " +
+    "daysOfWeek is 0..6 (Sun..Sat). Set isActive: false to pause a habit without deleting it.",
+  {
+    habitId: z.string().min(1),
+    name: z.string().optional(),
+    emoji: z.string().optional(),
+    description: z.string().optional(),
+    category: z.string().optional(),
+    frequency: z.string().optional(),
+    targetCount: z.number().int().optional(),
+    tracker: z.string().optional(),
+    daysOfWeek: z.array(z.number().int()).optional(),
+    reminderTime: z.string().optional().describe("HH:mm"),
+    isActive: z.boolean().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("update_habit", args);
+    return guard(() => gql(`mutation UH($input: UpdateHabitInput!) { updateHabit(input: $input) { _id name } }`, { input: args }));
+  }
+);
+
+server.tool(
+  "reschedule_session",
+  "Move a session to a new time (confirm-gated). newStart/newEnd are ISO date-time strings. Both client and coach are notified by the existing flow.",
+  {
+    sessionId: z.string().min(1),
+    newStart: z.string().min(1).describe("ISO date-time"),
+    newEnd: z.string().min(1).describe("ISO date-time"),
+    ...confirmField,
+  },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("reschedule_session", args);
+    return guard(() =>
+      gql(
+        `mutation RS($input: RescheduleSessionInput!) {
+           rescheduleSession(input: $input) { _id scheduledStart scheduledEnd status }
+         }`,
+        { input: args }
+      )
+    );
+  }
+);
+
+server.tool(
+  "cancel_session",
+  "Cancel a scheduled session (confirm-gated). Optionally give a short reason the client will see.",
+  { sessionId: z.string().min(1), reason: z.string().optional(), ...confirmField },
+  async ({ confirm, sessionId, reason }) => {
+    if (!confirm) return preview("cancel_session", { sessionId, reason });
+    return guard(() =>
+      gql(`mutation CS($sessionId: ID!, $reason: String) { cancelSession(sessionId: $sessionId, reason: $reason) { _id status } }`, {
+        sessionId,
+        reason,
+      })
+    );
+  }
+);
+
 /* ───────────────────────── Resource: client profile ───────────────────────── */
 
 server.resource(
