@@ -1212,6 +1212,23 @@ server.tool(
   }
 );
 
+server.tool(
+  "send_message_to_client",
+  "Send a chat message to one of the coach's clients (confirm-gated). It lands in the client's chat and sends them a push notification, exactly as if the coach typed it. Use the client's User._id (from list_clients). Write in the coach's voice, first person.",
+  { clientId: z.string().min(1), text: z.string().min(1), ...confirmField },
+  async ({ confirm, clientId, text }) => {
+    if (!confirm) return preview("send_message_to_client", { clientId, text });
+    return guard(() =>
+      gql(
+        `mutation SM($clientId: ID!, $text: String!) {
+           sendClientMessage(clientId: $clientId, text: $text) { messageId roomId }
+         }`,
+        { clientId, text }
+      )
+    );
+  }
+);
+
 /* ───────────────────────── Resource: client profile ───────────────────────── */
 
 server.resource(
