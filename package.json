@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local MCP server for Trainzilla Coach (wraps the api.tzilla.live GraphQL API). MVP — read-only + calculators.",
+  "description": "Local MCP server for Trainzilla Coach (wraps the api.tzilla.live GraphQL API). MVP \u2014 read-only + calculators.",
   "bin": {
     "tzilla-mcp": "dist/index.js"
   },
@@ -29,7 +29,8 @@
     "start": "node dist/index.js",
     "start:http": "node dist/http.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "try": "node scripts/try.mjs"
+    "try": "node scripts/try.mjs",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
