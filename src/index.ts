@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { assertConfigured } from "./config.js";
 import { gql } from "./client.js";
+import { pickRecentDuplicate, RecentPlan } from "./duplicate-guard.js";
 import {
   calculateMacros,
   computeBmr,
@@ -767,6 +768,37 @@ function preview(action: string, details: unknown): ToolResult {
   return ok({ status: "preview", action, details, note: "Re-run the tool with confirm: true to execute." });
 }
 
+// A conversation that asks "is it done?" after a create tool already ran a
+// moment ago tends to get answered by re-invoking the very tool that "did"
+// it, rather than a read-only check — observed live: one "confirm" + two
+// "is it done?" follow-ups produced three near-identical workout plans and
+// two near-identical diet plans for the same client, ~90 seconds apart,
+// because nothing stopped a second confirm:true call from writing again.
+// Guard the two create tools against that: if a plan with the same title
+// for the same client was created inside this window, hand back the
+// existing one instead of writing a duplicate. Matching rule lives in
+// duplicate-guard.ts so it is unit-testable on its own.
+async function findRecentDuplicatePlan(
+  kind: "workout" | "diet",
+  clientId: string,
+  title: string,
+): Promise<RecentPlan | null> {
+  const query =
+    kind === "workout"
+      ? `query WP($clientId: ID!, $p: PaginationInput!) {
+           workoutPlansForClient(clientId: $clientId, pagination: $p) { _id title createdAt }
+         }`
+      : `query DP($clientId: ID!, $p: PaginationInput!) {
+           dietPlansForClient(clientId: $clientId, pagination: $p) { _id title createdAt }
+         }`;
+  const field = kind === "workout" ? "workoutPlansForClient" : "dietPlansForClient";
+
+  const data = await gql<Record<string, RecentPlan[]>>(query, { clientId, p: PAGE });
+  const plans = data[field] ?? [];
+  return pickRecentDuplicate(plans, title, Date.now());
+}
+
+
 const CATEGORY = z.enum(["ACTIVITY", "NUTRITION", "MINDFULNESS", "SLEEP", "HYDRATION", "OTHER"]);
 const FREQUENCY = z.enum(["DAILY", "WEEKLY"]);
 
@@ -987,7 +1019,8 @@ server.tool(
 
 server.tool(
   "create_workout_plan",
-  "Create a workout plan for a client (confirm-gated). exercises: array of { name, sets, reps, restSeconds?, section?, exerciseId?, notes?, modality?, ... }. " +
+  "Create a workout plan for a client (confirm-gated). To check whether one was already created — for example if asked \"is it done?\" — call list_workout_plans instead of calling this again; re-running this with confirm: true a second time for the same client and title returns the plan already on file rather than writing a duplicate. " +
+    "exercises: array of { name, sets, reps, restSeconds?, section?, exerciseId?, notes?, modality?, ... }. " +
     "modality selects which parameters actually describe the work: STRENGTH (sets/reps/restSeconds) | INTERVAL (rounds + distanceMeters or durationSeconds + recoverySeconds + targetPace) | STEADY (durationSeconds or distanceMeters + targetPace) | AMRAP or EMOM (durationSeconds as the cap + rounds) | FOR_TIME | HOLD (durationSeconds). " +
     "Never describe a run as sets and reps: '6 x 400 m at 5k pace, 90 s jog' is modality INTERVAL with rounds 6, distanceMeters 400, recoverySeconds 90, targetPace '5k pace'. Call get_training_split first so the week has a real structure. " +
     "section must be one of WARMUP | RESISTANCE | STRETCHING | CARDIO | COOL_DOWN (defaults to RESISTANCE so the app renders them under 'Main Workout'). " +
@@ -1008,6 +1041,14 @@ server.tool(
     const normalized = normalizeExercises(exercises);
     if (!confirm) return preview("create_workout_plan", { ...args, exercises: normalized });
     return guard(async () => {
+      const existing = await findRecentDuplicatePlan("workout", args.clientId, args.title);
+      if (existing) {
+        return {
+          _id: existing._id,
+          title: existing.title,
+          note: `Already created ${Math.round((Date.now() - new Date(existing.createdAt).getTime()) / 1000)}s ago — returning the existing plan instead of creating a duplicate.`,
+        };
+      }
       const trainerId = await trainerUserId();
       return gql(
         `mutation CW($input: CreateWorkoutPlanInput!) { createWorkoutPlan(input: $input) { _id title } }`,
@@ -1019,7 +1060,8 @@ server.tool(
 
 server.tool(
   "create_diet_plan",
-  "Create a diet plan for a client (confirm-gated). Prefer meals like { name, scheduledTime: 'HH:mm', order, days: [MONDAY..SUNDAY], section, calories, macros, description, ingredients }. " +
+  "Create a diet plan for a client (confirm-gated). To check whether one was already created — for example if asked \"is it done?\" — call list_diet_plans instead of calling this again; re-running this with confirm: true a second time for the same client and title returns the plan already on file rather than writing a duplicate. " +
+    "Prefer meals like { name, scheduledTime: 'HH:mm', order, days: [MONDAY..SUNDAY], section, calories, macros, description, ingredients }. " +
     "description: one short sentence explaining why this meal is included — shown to the client under the meal. " +
     "ingredients: break every meal into its raw materials with real quantities — e.g. [{ name: 'Paneer', quantity: 60, unit: 'g', calories: 159, protein: 11, carbs: 2, fat: 13 }, { name: 'Cooking oil', quantity: 10, unit: 'ml', isCookingAddition: true, calories: 88, fat: 10 }]. " +
     "Always include the cooking fat (oil/ghee/butter) as its own ingredient — it is easy to forget and adds real calories. Use get_ingredient_nutrition for the numbers, and make the ingredient calories/macros sum roughly to the meal's calories/macros. " +
@@ -1036,6 +1078,14 @@ server.tool(
     const normalizedMeals = normalizeDietMeals(meals as Record<string, unknown>[]);
     if (!confirm) return preview("create_diet_plan", { ...args, meals: normalizedMeals });
     return guard(async () => {
+      const existing = await findRecentDuplicatePlan("diet", args.clientId, args.title);
+      if (existing) {
+        return {
+          _id: existing._id,
+          title: existing.title,
+          note: `Already created ${Math.round((Date.now() - new Date(existing.createdAt).getTime()) / 1000)}s ago — returning the existing plan instead of creating a duplicate.`,
+        };
+      }
       const trainerId = await trainerUserId();
       return gql(
         `mutation CD($input: CreateDietPlanInput!) { createDietPlan(input: $input) { _id title } }`,
