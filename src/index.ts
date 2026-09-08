@@ -312,24 +312,31 @@ server.tool(
 
 server.tool(
   "get_client_profile",
-  "Get a client's fitness profile + computed metrics (BMI, TDEE, recommended calories). Pass the client's user _id.",
-  { userId: z.string().min(1) },
+  "Get a client's fitness profile + computed metrics (BMI, TDEE, recommended calories, start/latest logged weight). " +
+    "Pass `clientId` (the client's user _id, same value every other tool takes). `userId` is accepted as an alias.",
+  {
+    clientId: z.string().min(1).optional(),
+    userId: z.string().min(1).optional(),
+  },
   READ_ONLY,
-  async ({ userId }) =>
-    guard(() =>
-      gql(
+  async ({ clientId, userId }) =>
+    guard(() => {
+      const id = clientId ?? userId;
+      if (!id) throw new Error("get_client_profile requires clientId (the client's user _id).");
+      return gql(
         `query Profile($userId: ID!) {
            fitnessProfile(userId: $userId) {
              userId
              profile {
                name age gender heightCm currentWeightKg targetWeightKg goal activityLevel
+               startWeightKg latestLoggedWeightKg weightDeltaKgFromStart
                computed { bmi bmiCategory tdee recommendedCaloriesPerDay }
              }
            }
          }`,
-        { userId }
-      )
-    )
+        { userId: id }
+      );
+    })
 );
 
 server.tool(
@@ -489,7 +496,7 @@ server.tool(
   "calc_tdee",
   "Compute BMR, TDEE, and recommended daily calories from client stats.",
   {
-    gender: z.enum(["MALE", "FEMALE"]),
+    gender: z.enum(["MALE", "FEMALE", "OTHER"]),
     weightKg: z.number().positive(),
     heightCm: z.number().positive(),
     age: z.number().int().positive(),
@@ -648,7 +655,8 @@ server.tool(
 
 server.tool(
   "list_checkins",
-  "List check-ins for the coach (optionally filtered to one client by user _id).",
+  "List check-ins for the coach (optionally filtered to one client by user _id). " +
+    "A check-in with status PENDING whose scheduledFor is in the past is overdue (the client did not respond).",
   { clientId: z.string().min(1).optional() },
   READ_ONLY,
   async ({ clientId }) =>
@@ -656,7 +664,9 @@ server.tool(
       const trainerId = await trainerUserId();
       return gql(
         `query CI($trainerId: ID!, $clientId: ID) {
-           checkInsForTrainer(trainerId: $trainerId, clientId: $clientId) { _id clientId scheduledFor }
+           checkInsForTrainer(trainerId: $trainerId, clientId: $clientId) {
+             _id clientId scheduledFor status acceptedAt rejectedAt respondedAt logWindowEndsAt
+           }
          }`,
         { trainerId, clientId: clientId ?? null }
       );
@@ -2185,7 +2195,7 @@ server.prompt(
           text:
             `Prepare this week's coaching review for client ${clientId}.\n\n` +
             `Use the tzilla-coach tools:\n` +
-            `1. get_client_profile(userId: "${clientId}")\n` +
+            `1. get_client_profile(clientId: "${clientId}")\n` +
             `2. list_client_habits(clientId: "${clientId}") and get_habit_compliance for the last 7 days\n` +
             `3. recent_habit_activity and list_sessions(clientId: "${clientId}")\n\n` +
             `Then write a concise review: progress vs. goal, habit wins, at-risk/missed habits, ` +
