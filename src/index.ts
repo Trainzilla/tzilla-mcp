@@ -1229,6 +1229,857 @@ server.tool(
   }
 );
 
+/* ═════════════════════════ Prospects (CRM) ═════════════════════════
+ * A coach's pre-client pipeline — leads captured from the profile form,
+ * WhatsApp, or entered by hand. Distinct from Clients: a prospect has not
+ * signed up on the platform yet. */
+
+const PROSPECT_STATUS = z.enum(["NEW", "CONTACTED", "CONVERTED", "LOST"]);
+
+server.tool(
+  "list_prospects",
+  "List the coach's prospects (leads who have not become clients yet). Optionally filter by status.",
+  { status: PROSPECT_STATUS.optional(), pageNumber: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(100).default(50) },
+  READ_ONLY,
+  async ({ status, pageNumber, pageSize }) =>
+    guard(() =>
+      gql(
+        `query PR($status: ProspectStatus, $p: PaginationInput!) {
+           prospectsForTrainer(status: $status, pagination: $p) {
+             _id name phone email goal status source notes { text createdAt } convertedClientId createdAt updatedAt
+           }
+         }`,
+        { status, p: { pageNumber, pageSize } }
+      )
+    )
+);
+
+server.tool(
+  "get_prospect_stats",
+  "Counts of prospects by pipeline stage (new / contacted / converted / lost) for the coach.",
+  {},
+  READ_ONLY,
+  async () => guard(() => gql(`query { prospectStats { new contacted converted lost total } }`))
+);
+
+server.tool(
+  "create_prospect",
+  "Manually add a prospect to the pipeline (confirm-gated) — for a lead that came in outside the platform (a call, a walk-in, a referral).",
+  {
+    name: z.string().min(1),
+    phone: z.string().optional(),
+    email: z.string().optional(),
+    goal: z.string().optional(),
+    note: z.string().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, ...input }) => {
+    if (!confirm) return preview("create_prospect", input);
+    return guard(() =>
+      gql(`mutation CP($input: CreateProspectInput!) { createProspectManual(input: $input) { _id name status } }`, { input })
+    );
+  }
+);
+
+server.tool(
+  "update_prospect_status",
+  "Move a prospect to a new pipeline stage (confirm-gated). Use list_prospects to get the id.",
+  { id: z.string().min(1), status: PROSPECT_STATUS, ...confirmField },
+  async ({ confirm, id, status }) => {
+    if (!confirm) return preview("update_prospect_status", { id, status });
+    return guard(() =>
+      gql(`mutation UPS($id: ID!, $status: ProspectStatus!) { updateProspectStatus(id: $id, status: $status) { _id status } }`, { id, status })
+    );
+  }
+);
+
+server.tool(
+  "add_prospect_note",
+  "Add a timestamped note to a prospect's record (confirm-gated) — e.g. what was discussed on a call.",
+  { id: z.string().min(1), note: z.string().min(1), ...confirmField },
+  async ({ confirm, id, note }) => {
+    if (!confirm) return preview("add_prospect_note", { id, note });
+    return guard(() =>
+      gql(`mutation APN($id: ID!, $note: String!) { addProspectNote(id: $id, note: $note) { _id notes { text createdAt } } }`, { id, note })
+    );
+  }
+);
+
+/* ═════════════════════════ Ratings ═════════════════════════
+ * Read-only: a coach checking their own client reviews. Clients rate their
+ * coach from the client app — there is no coach-initiated write here. */
+
+server.tool(
+  "get_my_ratings",
+  "The coach's own client ratings/reviews (public ones only — a client can mark theirs private), newest first.",
+  { limit: z.number().int().min(1).max(100).optional() },
+  READ_ONLY,
+  async ({ limit }) => {
+    const trainerId = await trainerUserId();
+    return guard(() =>
+      gql(
+        `query R($trainerId: ID!, $limit: Int) { ratingsForTrainer(trainerId: $trainerId, limit: $limit) { _id stars comment createdAt } }`,
+        { trainerId, limit }
+      )
+    );
+  }
+);
+
+server.tool(
+  "get_my_rating_summary",
+  "The coach's average star rating and review count.",
+  {},
+  READ_ONLY,
+  async () => {
+    const trainerId = await trainerUserId();
+    return guard(() => gql(`query S($trainerId: ID!) { ratingSummaryForTrainer(trainerId: $trainerId) { average count } }`, { trainerId }));
+  }
+);
+
+/* ═════════════════════════ Plan Templates ═════════════════════════
+ * Reusable workout/diet templates the coach builds once and reuses across
+ * clients — distinct from create_workout_plan/create_diet_plan, which
+ * assign a live plan to one specific client. */
+
+const TEMPLATE_VISIBILITY = z.enum(["PRIVATE", "PUBLIC"]);
+const TEMPLATE_DIFFICULTY = z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED"]);
+const TEMPLATE_GOAL = z.enum(["FAT_LOSS", "MUSCLE_GAIN", "STRENGTH", "GENERAL_FITNESS"]);
+const templatePaginationField = {
+  pageNumber: z.number().int().min(1).default(1),
+  pageSize: z.number().int().min(1).max(100).default(50),
+  search: z.string().optional(),
+  tag: z.string().optional(),
+  onlyMine: z.boolean().optional(),
+};
+
+server.tool(
+  "list_workout_plan_templates",
+  "List the coach's workout plan templates (id, title, tags, difficulty, goal).",
+  templatePaginationField,
+  READ_ONLY,
+  async ({ pageNumber, pageSize, search, tag, onlyMine }) => {
+    const trainerId = await trainerUserId();
+    return guard(() =>
+      gql(
+        `query T($trainerId: ID!, $p: TemplatesPaginationInput!) {
+           workoutPlanTemplatesForTrainer(trainerId: $trainerId, pagination: $p) {
+             _id title description tags visibility difficulty goal usageCount isMarketplace price currency
+           }
+         }`,
+        { trainerId, p: { pageNumber, pageSize, search, tag, onlyMine } }
+      )
+    );
+  }
+);
+
+server.tool(
+  "list_diet_plan_templates",
+  "List the coach's diet plan templates (id, title, tags, difficulty, goal).",
+  templatePaginationField,
+  READ_ONLY,
+  async ({ pageNumber, pageSize, search, tag, onlyMine }) => {
+    const trainerId = await trainerUserId();
+    return guard(() =>
+      gql(
+        `query T($trainerId: ID!, $p: TemplatesPaginationInput!) {
+           dietPlanTemplatesForTrainer(trainerId: $trainerId, pagination: $p) {
+             _id title description tags visibility difficulty goal usageCount isMarketplace price currency
+           }
+         }`,
+        { trainerId, p: { pageNumber, pageSize, search, tag, onlyMine } }
+      )
+    );
+  }
+);
+
+server.tool(
+  "get_workout_plan_template",
+  "Full detail of one workout plan template, including every exercise.",
+  { id: z.string().min(1) },
+  READ_ONLY,
+  async ({ id }) =>
+    guard(() =>
+      gql(
+        `query T($id: ID!) { workoutPlanTemplateById(id: $id) { _id title description tags difficulty goal exercises { name sets reps restSeconds section order exerciseId } } }`,
+        { id }
+      )
+    )
+);
+
+server.tool(
+  "get_diet_plan_template",
+  "Full detail of one diet plan template, including every meal.",
+  { id: z.string().min(1) },
+  READ_ONLY,
+  async ({ id }) =>
+    guard(() =>
+      gql(
+        `query T($id: ID!) { dietPlanTemplateById(id: $id) { _id title description tags difficulty goal meals { name scheduledTime section calories order days } } }`,
+        { id }
+      )
+    )
+);
+
+server.tool(
+  "create_workout_plan_template",
+  "Save a reusable workout plan template (confirm-gated). exercises follow the same shape as create_workout_plan's.",
+  {
+    title: z.string().min(1),
+    description: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    visibility: TEMPLATE_VISIBILITY,
+    difficulty: TEMPLATE_DIFFICULTY.optional(),
+    goal: TEMPLATE_GOAL.optional(),
+    exercises: z.array(z.record(z.unknown())).min(1),
+    ...confirmField,
+  },
+  async ({ confirm, ...input }) => {
+    if (!confirm) return preview("create_workout_plan_template", input);
+    return guard(async () => {
+      const trainerId = await trainerUserId();
+      return gql(
+        `mutation CT($trainerId: ID!, $input: CreateWorkoutPlanTemplateInput!) { createWorkoutPlanTemplate(trainerId: $trainerId, input: $input) { _id title } }`,
+        { trainerId, input }
+      );
+    });
+  }
+);
+
+server.tool(
+  "create_diet_plan_template",
+  "Save a reusable diet plan template (confirm-gated). meals follow the same shape as create_diet_plan's.",
+  {
+    title: z.string().min(1),
+    description: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    visibility: TEMPLATE_VISIBILITY,
+    difficulty: TEMPLATE_DIFFICULTY.optional(),
+    goal: TEMPLATE_GOAL.optional(),
+    meals: z.array(z.record(z.unknown())).min(1),
+    ...confirmField,
+  },
+  async ({ confirm, ...input }) => {
+    if (!confirm) return preview("create_diet_plan_template", input);
+    return guard(async () => {
+      const trainerId = await trainerUserId();
+      return gql(
+        `mutation CT($trainerId: ID!, $input: CreateDietPlanTemplateInput!) { createDietPlanTemplate(trainerId: $trainerId, input: $input) { _id title } }`,
+        { trainerId, input }
+      );
+    });
+  }
+);
+
+server.tool(
+  "update_workout_plan_template",
+  "Edit an existing workout plan template (confirm-gated). Only send the fields that change.",
+  {
+    id: z.string().min(1),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    visibility: TEMPLATE_VISIBILITY.optional(),
+    difficulty: TEMPLATE_DIFFICULTY.optional(),
+    goal: TEMPLATE_GOAL.optional(),
+    exercises: z.array(z.record(z.unknown())).optional(),
+    ...confirmField,
+  },
+  async ({ confirm, id, ...input }) => {
+    if (!confirm) return preview("update_workout_plan_template", { id, ...input });
+    return guard(() =>
+      gql(`mutation UT($id: ID!, $input: UpdateWorkoutPlanTemplateInput!) { updateWorkoutPlanTemplate(id: $id, input: $input) { _id title } }`, { id, input })
+    );
+  }
+);
+
+server.tool(
+  "update_diet_plan_template",
+  "Edit an existing diet plan template (confirm-gated). Only send the fields that change.",
+  {
+    id: z.string().min(1),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    visibility: TEMPLATE_VISIBILITY.optional(),
+    difficulty: TEMPLATE_DIFFICULTY.optional(),
+    goal: TEMPLATE_GOAL.optional(),
+    meals: z.array(z.record(z.unknown())).optional(),
+    ...confirmField,
+  },
+  async ({ confirm, id, ...input }) => {
+    if (!confirm) return preview("update_diet_plan_template", { id, ...input });
+    return guard(() =>
+      gql(`mutation UT($id: ID!, $input: UpdateDietPlanTemplateInput!) { updateDietPlanTemplate(id: $id, input: $input) { _id title } }`, { id, input })
+    );
+  }
+);
+
+server.tool(
+  "delete_workout_plan_template",
+  "Permanently delete a workout plan template (confirm-gated). This does not touch any plan already assigned to a client from it.",
+  { id: z.string().min(1), ...confirmField },
+  async ({ confirm, id }) => {
+    if (!confirm) return preview("delete_workout_plan_template", { id });
+    return guard(() => gql(`mutation DT($id: ID!) { deleteWorkoutPlanTemplate(id: $id) }`, { id }));
+  }
+);
+
+server.tool(
+  "delete_diet_plan_template",
+  "Permanently delete a diet plan template (confirm-gated). This does not touch any plan already assigned to a client from it.",
+  { id: z.string().min(1), ...confirmField },
+  async ({ confirm, id }) => {
+    if (!confirm) return preview("delete_diet_plan_template", { id });
+    return guard(() => gql(`mutation DT($id: ID!) { deleteDietPlanTemplate(id: $id) }`, { id }));
+  }
+);
+
+server.tool(
+  "set_workout_plan_template_marketplace",
+  "List or unlist a workout plan template on the Trainzilla marketplace, and set its price (confirm-gated). This does not process any payment — it only makes the template available for other coaches to buy.",
+  { templateId: z.string().min(1), isMarketplace: z.boolean(), price: z.number().int().min(0).optional(), currency: z.string().optional(), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("set_workout_plan_template_marketplace", args);
+    return guard(() =>
+      gql(
+        `mutation M($templateId: ID!, $isMarketplace: Boolean!, $price: Int, $currency: String) { setWorkoutPlanTemplateMarketplace(templateId: $templateId, isMarketplace: $isMarketplace, price: $price, currency: $currency) { _id isMarketplace price currency } }`,
+        args
+      )
+    );
+  }
+);
+
+server.tool(
+  "set_diet_plan_template_marketplace",
+  "List or unlist a diet plan template on the Trainzilla marketplace, and set its price (confirm-gated). This does not process any payment — it only makes the template available for other coaches to buy.",
+  { templateId: z.string().min(1), isMarketplace: z.boolean(), price: z.number().int().min(0).optional(), currency: z.string().optional(), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("set_diet_plan_template_marketplace", args);
+    return guard(() =>
+      gql(
+        `mutation M($templateId: ID!, $isMarketplace: Boolean!, $price: Int, $currency: String) { setDietPlanTemplateMarketplace(templateId: $templateId, isMarketplace: $isMarketplace, price: $price, currency: $currency) { _id isMarketplace price currency } }`,
+        args
+      )
+    );
+  }
+);
+
+/* ═════════════════════════ Invitations ═════════════════════════ */
+
+server.tool(
+  "list_invitations",
+  "List invitations the coach has sent to prospective clients (pending, accepted, rejected).",
+  { pageNumber: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(100).default(50) },
+  READ_ONLY,
+  async ({ pageNumber, pageSize }) => {
+    const trainerId = await trainerUserId();
+    return guard(() =>
+      gql(
+        `query I($trainerId: ID!, $p: PaginationInput!) { getInvitationsForTrainer(trainerId: $trainerId, pagination: $p) { _id email status type expiresAt createdAt } }`,
+        { trainerId, p: { pageNumber, pageSize } }
+      )
+    );
+  }
+);
+
+server.tool(
+  "get_my_pending_org_invitations",
+  "Organization invitations this coach has received and not yet responded to (e.g. an invite to join a gym as staff).",
+  {},
+  READ_ONLY,
+  async () => guard(() => gql(`query { myCoachInvitations { _id email status type organization { name } expiresAt } }`))
+);
+
+server.tool(
+  "send_invitation",
+  "Invite a prospective client to join Trainzilla under this coach, by email (confirm-gated). They receive an email with a signup link.",
+  { email: z.string().email(), expiresInHours: z.number().int().positive().optional(), ...confirmField },
+  async ({ confirm, ...input }) => {
+    if (!confirm) return preview("send_invitation", input);
+    return guard(() =>
+      gql(`mutation SI($input: SendInvitationInput!) { sendInvitation(input: $input) { _id email status expiresAt } }`, { input })
+    );
+  }
+);
+
+server.tool(
+  "remove_client",
+  "End the coaching relationship with a client (confirm-gated). This does not delete the client's account or history — it only disconnects them from this coach. Irreversible from this tool; the client would need to re-request or be re-invited.",
+  { clientId: z.string().min(1), ...confirmField },
+  async ({ confirm, clientId }) => {
+    if (!confirm) return preview("remove_client", { clientId });
+    return guard(() => gql(`mutation RC($clientId: ID!) { removeClient(clientId: $clientId) }`, { clientId }));
+  }
+);
+
+/* ═════════════════════════ Trainer Profile ═════════════════════════
+ * The coach's own public/business profile — separate from client-facing
+ * tools, which never touch the coach's own record. Onboarding-only
+ * mutations (initOnboarding/saveAvailabilityStep/completeOnboarding/
+ * createTrainer) are deliberately not exposed: they only make sense once,
+ * during signup, before an AI conversation would ever be connected. */
+
+server.tool(
+  "get_my_profile",
+  "The coach's own full profile — contact info, professional info (specialties, certifications, bio), availability, and public transformations/testimonials. Bank details are never returned by this tool.",
+  {},
+  READ_ONLY,
+  async () =>
+    guard(() =>
+      gql(
+        `query { trainer {
+           userId name profilePhoto bio specialties certifications yearsOfExperience businessType languages
+           contact { phone addressLine1 addressLine2 city state country postalCode }
+           availability { preferredTime daysAvailable checkIn checkOut timezone }
+         } }`
+      )
+    )
+);
+
+server.tool(
+  "update_my_contact",
+  "Update the coach's own contact info (confirm-gated). Sends the full object — fields omitted are cleared, so read get_my_profile first if only changing one field.",
+  {
+    phone: z.string().min(1),
+    addressLine1: z.string().min(1),
+    addressLine2: z.string().optional(),
+    city: z.string().min(1),
+    state: z.string().optional(),
+    country: z.string().min(1),
+    postalCode: z.string().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, ...contact }) => {
+    if (!confirm) return preview("update_my_contact", contact);
+    return guard(() =>
+      gql(`mutation UC($input: UpdateTrainerContactInput!) { updateTrainerContact(input: $input) { userId contact { phone city } } }`, {
+        input: { contact },
+      })
+    );
+  }
+);
+
+server.tool(
+  "update_my_bank",
+  "Update the coach's own payout bank account (confirm-gated). This is where Trainzilla sends the coach's earnings — get explicit confirmation of the exact account/IFSC from the coach before calling with confirm: true, this tool's own preview is not enough given how consequential a wrong account number is.",
+  {
+    accountHolderName: z.string().min(1),
+    accountNumber: z.string().min(1),
+    ifscCode: z.string().min(1),
+    bankName: z.string().min(1),
+    ...confirmField,
+  },
+  async ({ confirm, ...bankDetails }) => {
+    if (!confirm) return preview("update_my_bank", bankDetails);
+    return guard(() =>
+      gql(`mutation UB($input: UpdateTrainerBankInput!) { updateTrainerBank(input: $input) { userId } }`, {
+        input: { bankDetails },
+      })
+    );
+  }
+);
+
+server.tool(
+  "update_my_professional",
+  "Update the coach's own professional info — specialties, certifications, years of experience, bio, languages, business type (confirm-gated). Sends the full object; read get_my_profile first if only changing one field.",
+  {
+    specialties: z.array(z.string()).min(1),
+    certifications: z.array(z.string()),
+    yearsOfExperience: z.number().int().min(0),
+    bio: z.string().optional(),
+    businessType: z.string(),
+    languages: z.array(z.string()).min(1),
+    profilePhoto: z.string(),
+    gallery: z.array(z.string()),
+    certificateFiles: z.array(z.string()),
+    ...confirmField,
+  },
+  async ({ confirm, ...professional }) => {
+    if (!confirm) return preview("update_my_professional", professional);
+    return guard(() =>
+      gql(`mutation UP($input: UpdateTrainerProfessionalInput!) { updateTrainerProfessional(input: $input) { userId bio } }`, {
+        input: { professional },
+      })
+    );
+  }
+);
+
+server.tool(
+  "update_my_availability",
+  "Update when the coach is bookable for sessions (confirm-gated). This is the same availability that drives trainerAvailableHourSlotsNext7Days / session booking.",
+  {
+    preferredTime: z.string(),
+    daysAvailable: z.array(z.string()).min(1),
+    checkIn: z.string().regex(/^\d{2}:\d{2}$/),
+    checkOut: z.string().regex(/^\d{2}:\d{2}$/),
+    timezone: z.string(),
+    ...confirmField,
+  },
+  async ({ confirm, ...availability }) => {
+    if (!confirm) return preview("update_my_availability", availability);
+    return guard(() =>
+      gql(`mutation UA($input: UpdateTrainerAvailabilityInput!) { updateTrainerAvailability(input: $input) { userId } }`, {
+        input: { availability },
+      })
+    );
+  }
+);
+
+server.tool(
+  "update_my_transformations",
+  "Replace the coach's own public before/after client transformation gallery (confirm-gated). Sends the full list — read get_my_profile first if only adding one.",
+  {
+    transformations: z.array(z.object({
+      clientName: z.string().min(1),
+      timeline: z.string().min(1),
+      beforeImages: z.array(z.string()),
+      afterImages: z.array(z.string()),
+      transformationGoal: z.string(),
+      resultsAndAchievements: z.array(z.string()),
+      resultsText: z.string().optional(),
+    })),
+    ...confirmField,
+  },
+  async ({ confirm, transformations }) => {
+    if (!confirm) return preview("update_my_transformations", { transformations });
+    return guard(() =>
+      gql(`mutation UT($input: UpdateTrainerTransformationsInput!) { updateTrainerTransformations(input: $input) { userId } }`, {
+        input: { transformations },
+      })
+    );
+  }
+);
+
+server.tool(
+  "update_my_testimonials",
+  "Replace the coach's own public client testimonials (confirm-gated). Sends the full list — read get_my_profile first if only adding one.",
+  {
+    testimonials: z.array(z.object({
+      clientName: z.string().min(1),
+      profileImage: z.string(),
+      note: z.string().min(1),
+    })),
+    ...confirmField,
+  },
+  async ({ confirm, testimonials }) => {
+    if (!confirm) return preview("update_my_testimonials", { testimonials });
+    return guard(() =>
+      gql(`mutation UT($input: UpdateTrainerTestimonialsInput!) { updateTrainerTestimonials(input: $input) { userId } }`, {
+        input: { testimonials },
+      })
+    );
+  }
+);
+
+/* ═════════════════════════ Organization ═════════════════════════
+ * Multi-coach teams / gyms. Only meaningful for a coach who owns or
+ * manages an organization — resolvers enforce that server-side.
+ *
+ * Deliberately NOT exposed: createOrganizationSubscription and
+ * confirmOrganizationSubscriptionCheckout. The confirm step needs a real
+ * razorpaySignature produced by Razorpay's checkout widget after an actual
+ * payment completes — nothing an AI agent can produce or drive — so wiring
+ * only the first half would create a subscription intent this tool can
+ * never finish. Seat/billing changes stay a human action in the app. */
+
+server.tool(
+  "list_my_organizations",
+  "Organizations the coach belongs to (owns, manages, or is a member of), with their role in each.",
+  {},
+  READ_ONLY,
+  async () => guard(() => gql(`query { organizations { _id name isActive myRole } }`))
+);
+
+server.tool(
+  "get_organization_hierarchy",
+  "Full org structure: locations, coaches with their roles and assigned locations, and pending invites. Use list_my_organizations for the id.",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) =>
+    guard(() =>
+      gql(
+        `query H($organizationId: ID!) { organizationHierarchy(organizationId: $organizationId) {
+           overview { totalCoaches totalLocations totalPendingInvites }
+           members { coach { userId name } organizationRole clientCount revenue }
+           locations { location { _id name } totalClients totalRevenue }
+           pendingInvites { invitationId email organizationRole expiresAt }
+         } }`,
+        { organizationId }
+      )
+    )
+);
+
+server.tool(
+  "list_organization_locations",
+  "List an organization's locations/branches.",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) => guard(() => gql(`query L($organizationId: ID!) { locations(organizationId: $organizationId) { _id name address isActive } }`, { organizationId }))
+);
+
+server.tool(
+  "list_organization_coaches",
+  "List coaches in an organization, optionally filtered to one location, with each coach's client count and revenue.",
+  { organizationId: z.string().min(1), locationId: z.string().optional() },
+  READ_ONLY,
+  async ({ organizationId, locationId }) =>
+    guard(() =>
+      gql(
+        `query C($organizationId: ID!, $locationId: ID) { organizationCoaches(organizationId: $organizationId, locationId: $locationId) {
+           coach { userId name } role location { name } clientCount revenue
+         } }`,
+        { organizationId, locationId }
+      )
+    )
+);
+
+server.tool(
+  "list_organization_clients",
+  "List an organization's clients, optionally filtered by location or coach.",
+  { organizationId: z.string().min(1), locationId: z.string().optional(), coachId: z.string().optional(), pageNumber: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(100).default(50) },
+  READ_ONLY,
+  async ({ organizationId, locationId, coachId, pageNumber, pageSize }) =>
+    guard(() =>
+      gql(
+        `query OC($organizationId: ID!, $locationId: ID, $coachId: ID, $p: PaginationInput!) {
+           organizationClients(organizationId: $organizationId, locationId: $locationId, coachId: $coachId, pagination: $p) {
+             profileId user { _id name email } coach { name } location { name }
+           }
+         }`,
+        { organizationId, locationId, coachId, p: { pageNumber, pageSize } }
+      )
+    )
+);
+
+server.tool(
+  "get_organization_dashboard",
+  "Organization-wide totals: clients and revenue overall, and broken down per location and per coach.",
+  { organizationId: z.string().min(1), locationId: z.string().optional(), coachId: z.string().optional() },
+  READ_ONLY,
+  async ({ organizationId, locationId, coachId }) =>
+    guard(() =>
+      gql(
+        `query D($organizationId: ID!, $locationId: ID, $coachId: ID) { organizationDashboard(organizationId: $organizationId, locationId: $locationId, coachId: $coachId) {
+           totalClients totalRevenue
+           totalClientsPerLocation { locationName clientCount revenue }
+           totalClientsPerCoach { coachName clientCount revenue }
+         } }`,
+        { organizationId, locationId, coachId }
+      )
+    )
+);
+
+server.tool(
+  "get_organization_seat_usage",
+  "How many of the organization's paid coach seats are used vs. the current plan's limit.",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) => guard(() => gql(`query S($organizationId: ID!) { organizationSeatUsage(organizationId: $organizationId) { tier seatLimit seatsUsed hasActiveSubscription } }`, { organizationId }))
+);
+
+server.tool(
+  "get_organization_coach_attendance",
+  "A location's coach attendance roster for one date.",
+  { organizationId: z.string().min(1), attendanceDate: z.string().min(1).describe("YYYY-MM-DD"), locationId: z.string().optional() },
+  READ_ONLY,
+  async ({ organizationId, attendanceDate, locationId }) =>
+    guard(() =>
+      gql(
+        `query A($organizationId: ID!, $attendanceDate: String!, $locationId: ID) { organizationCoachAttendance(organizationId: $organizationId, attendanceDate: $attendanceDate, locationId: $locationId) {
+           totalPresent totalAbsent totalLate totalLeave
+           entries { coach { name } location { name } record { status notes } }
+         } }`,
+        { organizationId, attendanceDate, locationId }
+      )
+    )
+);
+
+server.tool(
+  "create_organization",
+  "Create a new organization (confirm-gated) — the coach becomes its owner.",
+  { name: z.string().min(1), ...confirmField },
+  async ({ confirm, name }) => {
+    if (!confirm) return preview("create_organization", { name });
+    return guard(() => gql(`mutation CO($name: String!) { createOrganization(name: $name) { _id name } }`, { name }));
+  }
+);
+
+server.tool(
+  "update_organization",
+  "Rename an organization (confirm-gated).",
+  { organizationId: z.string().min(1), name: z.string().min(1), ...confirmField },
+  async ({ confirm, organizationId, name }) => {
+    if (!confirm) return preview("update_organization", { organizationId, name });
+    return guard(() => gql(`mutation UO($organizationId: ID!, $name: String!) { updateOrganization(organizationId: $organizationId, name: $name) { _id name } }`, { organizationId, name }));
+  }
+);
+
+server.tool(
+  "create_organization_location",
+  "Add a new location/branch to an organization (confirm-gated).",
+  { organizationId: z.string().min(1), name: z.string().min(1), address: z.string().min(1), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("create_organization_location", args);
+    return guard(() => gql(`mutation CL($organizationId: ID!, $name: String!, $address: String!) { createLocation(organizationId: $organizationId, name: $name, address: $address) { _id name } }`, args));
+  }
+);
+
+server.tool(
+  "update_organization_location",
+  "Rename or re-address an existing location (confirm-gated).",
+  { locationId: z.string().min(1), name: z.string().min(1), address: z.string().min(1), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("update_organization_location", args);
+    return guard(() => gql(`mutation UL($locationId: ID!, $name: String!, $address: String!) { updateLocation(locationId: $locationId, name: $name, address: $address) { _id name } }`, args));
+  }
+);
+
+server.tool(
+  "delete_organization_location",
+  "Permanently delete a location (confirm-gated). Coaches and clients assigned to it are not moved automatically — reassign them first.",
+  { locationId: z.string().min(1), ...confirmField },
+  async ({ confirm, locationId }) => {
+    if (!confirm) return preview("delete_organization_location", { locationId });
+    return guard(() => gql(`mutation DL($locationId: ID!) { deleteLocation(locationId: $locationId) }`, { locationId }));
+  }
+);
+
+server.tool(
+  "invite_coach_to_organization",
+  "Invite a coach to join the organization by email, with a role and optional location (confirm-gated). They receive a real email.",
+  {
+    organizationId: z.string().min(1),
+    email: z.string().email(),
+    role: z.enum(["OWNER", "ADMIN", "PRIMARY_COACH", "COACH"]),
+    locationId: z.string().optional(),
+    expiresInHours: z.number().int().positive().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, ...input }) => {
+    if (!confirm) return preview("invite_coach_to_organization", input);
+    return guard(() => gql(`mutation IC($input: InviteCoachInput!) { inviteCoach(input: $input) { _id email status } }`, { input }));
+  }
+);
+
+server.tool(
+  "invite_client_to_organization",
+  "Invite a client to join the organization by email, optionally pre-assigned to a coach and location (confirm-gated). They receive a real email.",
+  {
+    organizationId: z.string().min(1),
+    email: z.string().email(),
+    coachId: z.string().optional(),
+    locationId: z.string().optional(),
+    expiresInHours: z.number().int().positive().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, ...input }) => {
+    if (!confirm) return preview("invite_client_to_organization", input);
+    return guard(() => gql(`mutation IC($input: InviteClientToOrganizationInput!) { inviteClientToOrganization(input: $input) { _id email status } }`, { input }));
+  }
+);
+
+server.tool(
+  "update_organization_coach_role",
+  "Change a coach's role within the organization (confirm-gated) — an access-control change, not a display label. Get explicit confirmation from the coach of exactly which member and which new role before calling with confirm: true.",
+  { organizationId: z.string().min(1), coachId: z.string().min(1), role: z.enum(["OWNER", "ADMIN", "PRIMARY_COACH", "COACH"]), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("update_organization_coach_role", args);
+    return guard(() =>
+      gql(
+        `mutation R($organizationId: ID!, $coachId: ID!, $role: OrganizationRole!) { updateOrganizationCoachRole(organizationId: $organizationId, coachId: $coachId, role: $role) { coach { name } organizationRole } }`,
+        args
+      )
+    );
+  }
+);
+
+server.tool(
+  "assign_coach_to_location",
+  "Assign or move a coach to a location within the organization, with a role there (confirm-gated).",
+  {
+    organizationId: z.string().min(1),
+    coachId: z.string().min(1),
+    locationId: z.string().min(1),
+    role: z.enum(["ADMIN", "PRIMARY_COACH", "COACH"]),
+    makePrimary: z.boolean().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, makePrimary, ...args }) => {
+    if (!confirm) return preview("assign_coach_to_location", { ...args, makePrimary });
+    return guard(() =>
+      gql(
+        `mutation A($input: UpsertOrganizationLocationAssignmentInput!) { upsertOrganizationLocationAssignment(input: $input) { coach { name } locationAssignments { location { name } role isPrimary } } }`,
+        { input: { ...args, makePrimary: makePrimary ?? false } }
+      )
+    );
+  }
+);
+
+server.tool(
+  "remove_coach_location_assignment",
+  "Unassign a coach from a location within the organization (confirm-gated). Does not remove them from the organization itself — use remove_coach_from_organization for that.",
+  { organizationId: z.string().min(1), coachId: z.string().min(1), locationId: z.string().min(1), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("remove_coach_location_assignment", args);
+    return guard(() =>
+      gql(`mutation R($input: RemoveOrganizationLocationAssignmentInput!) { removeOrganizationLocationAssignment(input: $input) { coach { name } } }`, { input: args })
+    );
+  }
+);
+
+server.tool(
+  "remove_coach_from_organization",
+  "Remove a coach from the organization entirely (confirm-gated) — high impact: optionally transfer their clients to another coach in the same call, or their clients are left unassigned. Get explicit confirmation of exactly which coach, and where their clients go, before calling with confirm: true.",
+  { organizationId: z.string().min(1), coachId: z.string().min(1), transferClientCoachId: z.string().optional(), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("remove_coach_from_organization", args);
+    return guard(() =>
+      gql(
+        `mutation RC($organizationId: ID!, $coachId: ID!, $transferClientCoachId: ID) { removeCoach(organizationId: $organizationId, coachId: $coachId, transferClientCoachId: $transferClientCoachId) }`,
+        args
+      )
+    );
+  }
+);
+
+server.tool(
+  "reassign_client_to_coach",
+  "Move one of an organization's clients from their current coach to a different coach in the same organization (confirm-gated).",
+  { organizationId: z.string().min(1), profileId: z.string().min(1), coachId: z.string().min(1), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("reassign_client_to_coach", args);
+    return guard(() =>
+      gql(
+        `mutation RC($organizationId: ID!, $profileId: ID!, $coachId: ID!) { reassignClient(organizationId: $organizationId, profileId: $profileId, coachId: $coachId) { profileId coach { name } } }`,
+        args
+      )
+    );
+  }
+);
+
+server.tool(
+  "record_organization_coach_attendance",
+  "Mark a coach present/absent/late/on-leave at a location for a date (confirm-gated).",
+  {
+    organizationId: z.string().min(1),
+    coachId: z.string().min(1),
+    locationId: z.string().min(1),
+    attendanceDate: z.string().min(1).describe("YYYY-MM-DD"),
+    status: z.enum(["PRESENT", "ABSENT", "LATE", "LEAVE"]),
+    notes: z.string().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, ...input }) => {
+    if (!confirm) return preview("record_organization_coach_attendance", input);
+    return guard(() =>
+      gql(
+        `mutation A($input: UpsertOrganizationCoachAttendanceInput!) { upsertOrganizationCoachAttendance(input: $input) { _id status attendanceDate } }`,
+        { input: { ...input, source: "MANUAL" } }
+      )
+    );
+  }
+);
+
 /* ───────────────────────── Resource: client profile ───────────────────────── */
 
 server.resource(
