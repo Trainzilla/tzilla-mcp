@@ -9,7 +9,7 @@ auth and business rules stay enforced by the backend.
 > write tools**, plus a resource + a prompt. Not deployed anywhere. Runs entirely
 > on your machine against your own coach login.
 
-## What it can do today (23 tools, 1 resource, 1 prompt)
+## What it can do today (94 tools, 1 resource, 1 prompt)
 
 **Read (live data):**
 - `whoami`, `list_clients`, `get_client_profile`
