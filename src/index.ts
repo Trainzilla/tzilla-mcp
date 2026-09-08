@@ -142,6 +142,25 @@ const dietMealSchema = z
   })
   .passthrough();
 
+// New diet plans must be fully itemised. Without this the model tends to write
+// the per-ingredient breakdown as prose in its reply and then send a thin tool
+// call (name + calories + macros only), so the saved plan loses every quantity.
+const requireItemisedMeals = (meals: unknown[], ctx: z.RefinementCtx) => {
+  meals.forEach((meal, i) => {
+    const ingredients = (meal as { ingredients?: unknown })?.ingredients;
+    if (!Array.isArray(ingredients) || ingredients.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [i, "ingredients"],
+        message:
+          "Every meal must be itemised: list each raw ingredient with a numeric `quantity` and `unit` " +
+          "(and include the cooking oil/ghee/butter as its own ingredient). Do not send a meal with only " +
+          "calories/macros — use get_ingredient_nutrition for the numbers and make the ingredients sum to the meal total.",
+      });
+    }
+  });
+};
+
 function normalizeDietKey(value: unknown): string {
   return String(value ?? "")
     .trim()
@@ -1063,15 +1082,15 @@ server.tool(
   "Create a diet plan for a client (confirm-gated). To check whether one was already created — for example if asked \"is it done?\" — call list_diet_plans instead of calling this again; re-running this with confirm: true a second time for the same client and title returns the plan already on file rather than writing a duplicate. " +
     "Prefer meals like { name, scheduledTime: 'HH:mm', order, days: [MONDAY..SUNDAY], section, calories, macros, description, ingredients }. " +
     "description: one short sentence explaining why this meal is included — shown to the client under the meal. " +
-    "ingredients: break every meal into its raw materials with real quantities — e.g. [{ name: 'Paneer', quantity: 60, unit: 'g', calories: 159, protein: 11, carbs: 2, fat: 13 }, { name: 'Cooking oil', quantity: 10, unit: 'ml', isCookingAddition: true, calories: 88, fat: 10 }]. " +
-    "Always include the cooking fat (oil/ghee/butter) as its own ingredient — it is easy to forget and adds real calories. Use get_ingredient_nutrition for the numbers, and make the ingredient calories/macros sum roughly to the meal's calories/macros. " +
+    "ingredients: REQUIRED on every meal — break each meal into its raw materials with real quantities — e.g. [{ name: 'Paneer', quantity: 60, unit: 'g', calories: 159, protein: 11, carbs: 2, fat: 13 }, { name: 'Cooking oil', quantity: 10, unit: 'ml', isCookingAddition: true, calories: 88, fat: 10 }]. A meal with only calories/macros and no ingredients is rejected. " +
+    "Always include the cooking fat (oil/ghee/butter) as its own ingredient — it is easy to forget and adds real calories. Use get_ingredient_nutrition for the numbers, and make the ingredient calories/macros sum roughly to the meal's calories/macros. Whatever itemised breakdown you show the coach in chat MUST be sent here as the ingredients array, or the client's saved plan will lose every quantity. " +
     "Legacy slot values like BREAKFAST/LUNCH/DINNER/SNACK are accepted and auto-mapped.",
   {
     clientId: z.string().min(1),
     title: z.string().min(1),
     startDate: z.string().min(1).describe("YYYY-MM-DD"),
     endDate: z.string().optional(),
-    meals: z.array(dietMealSchema).min(1),
+    meals: z.array(dietMealSchema).min(1).superRefine(requireItemisedMeals),
     ...confirmField,
   },
   async ({ confirm, meals, ...args }) => {
@@ -1497,7 +1516,7 @@ server.tool(
 
 server.tool(
   "create_diet_plan_template",
-  "Save a reusable diet plan template (confirm-gated). meals follow the same shape as create_diet_plan's.",
+  "Save a reusable diet plan template (confirm-gated). meals follow the same shape as create_diet_plan's — every meal must include a non-empty ingredients array with quantities.",
   {
     title: z.string().min(1),
     description: z.string().optional(),
@@ -1505,7 +1524,7 @@ server.tool(
     visibility: TEMPLATE_VISIBILITY,
     difficulty: TEMPLATE_DIFFICULTY.optional(),
     goal: TEMPLATE_GOAL.optional(),
-    meals: z.array(z.record(z.unknown())).min(1),
+    meals: z.array(z.record(z.unknown())).min(1).superRefine(requireItemisedMeals),
     ...confirmField,
   },
   async ({ confirm, ...input }) => {
