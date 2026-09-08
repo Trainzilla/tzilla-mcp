@@ -12,7 +12,7 @@ const ACTIVITY_MULTIPLIERS: Record<string, number> = {
 };
 
 export function computeBmr(
-  gender: "MALE" | "FEMALE",
+  gender: "MALE" | "FEMALE" | "OTHER",
   weightKg: number,
   heightCm: number,
   age: number,
@@ -23,7 +23,9 @@ export function computeBmr(
     return Math.round(370 + 21.6 * lbm); // Katch-McArdle
   }
   const base = 10 * weightKg + 6.25 * heightCm - 5 * age;
-  return Math.round(base + (gender === "MALE" ? 5 : -161)); // Mifflin-St Jeor
+  // Mifflin-St Jeor. -78 for Other matches tzilla-be/src/utils/health.ts.
+  const s = gender === "MALE" ? 5 : gender === "FEMALE" ? -161 : -78;
+  return Math.round(base + s);
 }
 
 export function computeTdee(bmr: number, activity: string): number {
