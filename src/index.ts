@@ -1706,11 +1706,22 @@ server.tool(
   async () =>
     guard(() =>
       gql(
-        `query { trainer {
-           userId name profilePhoto bio specialties certifications yearsOfExperience businessType languages
-           contact { phone addressLine1 addressLine2 city state country postalCode }
-           availability { preferredTime daysAvailable checkIn checkOut timezone }
-         } }`
+        `query {
+           user { _id name email }
+           trainer {
+             userId publicSlug isProfileCompleted isVerified gender dateOfBirth
+             professional {
+               specialties certifications yearsOfExperience bio businessType languages
+               profilePhoto gallery certificateFiles
+               socialLinks { name link }
+               mediaLinks { name link }
+             }
+             contact { phone addressLine1 addressLine2 city state country postalCode }
+             availability { preferredTime daysAvailable checkIn checkOut timezone }
+             transformations { clientName timeline beforeImages afterImages transformationGoal resultsAndAchievements }
+             testimonials { clientName profileImage note }
+           }
+         }`
       )
     )
 );
