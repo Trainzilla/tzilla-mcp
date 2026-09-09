@@ -2220,9 +2220,41 @@ server.prompt(
 
 } /* end registerAll */
 
+const SERVER_INSTRUCTIONS = [
+  "Trainzilla coaching data for one coach (your API key scopes everything to you).",
+  "",
+  "Identifiers:",
+  "- `clientId` everywhere is the client's User `_id` — the value list_clients returns as `_id`.",
+  "  It is NOT a Client document id. get_client_profile also accepts `userId` as an alias.",
+  "",
+  "Client stats:",
+  "- gender is MALE | FEMALE | OTHER. Pass OTHER through to calc_tdee as-is; do not coerce it.",
+  "- Monetary values are in the smallest currency unit (paise for INR). Divide by 100 before showing them.",
+  "",
+  "Writing plans:",
+  "- Mutation tools (create_*, update_*, delete_*, schedule_*, assign_*) preview unless `confirm: true`.",
+  "  Always show the preview to the coach first.",
+  "- create_diet_plan / create_diet_plan_template REJECT a meal that has only calories/macros. Every",
+  "  meal must be itemised: each raw ingredient with a numeric `quantity` and `unit`, including the",
+  "  cooking oil/ghee as its own ingredient. Use get_ingredient_nutrition for the numbers and make the",
+  "  ingredients sum to the meal total. Whatever breakdown you showed the coach in chat MUST be the",
+  "  ingredients array you send.",
+  "- Before create_workout_plan / create_diet_plan, call list_workout_plans / list_diet_plans for the",
+  "  client and don't create a near-duplicate of a plan that already covers the same dates.",
+  "",
+  "Check-ins: a check-in with status PENDING whose scheduledFor is in the past is overdue — the client",
+  "never responded.",
+  "",
+  "Photo analysis needs three calls in order: list_checkins -> get_checkin_answers (pulls PHOTO answer",
+  "URLs) -> get_client_images (fetches them as base64).",
+].join("\n");
+
 /** Build a fully-registered MCP server instance. */
 export function buildServer(): McpServer {
-  const server = new McpServer({ name: "tzilla-coach", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "tzilla-coach", version: "0.1.0" },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
   registerAll(server);
   return server;
 }
