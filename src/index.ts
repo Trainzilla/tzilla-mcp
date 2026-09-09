@@ -1787,7 +1787,7 @@ server.tool(
   async ({ confirm, ...professional }) => {
     if (!confirm) return preview("update_my_professional", professional);
     return guard(() =>
-      gql(`mutation UP($input: UpdateTrainerProfessionalInput!) { updateTrainerProfessional(input: $input) { userId bio } }`, {
+      gql(`mutation UP($input: UpdateTrainerProfessionalInput!) { updateTrainerProfessional(input: $input) { userId professional { bio } } }`, {
         input: { professional },
       })
     );
