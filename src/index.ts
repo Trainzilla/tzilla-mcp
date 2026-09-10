@@ -1384,6 +1384,93 @@ server.tool(
   }
 );
 
+/* ═════════════════════════ Client onboarding ═════════════════════════
+ * The workflow that runs the first time a client connects to the coach:
+ * a checklist of setup steps (welcome message, baseline check-in, first
+ * plans, habits, recurring check-in, kickoff call). Some steps auto-run on
+ * connect; the rest the coach works through. The backend also reconciles —
+ * a step flips to DONE once its underlying artifact exists — so this is
+ * mostly for reading progress and ticking off the manual steps. */
+
+const ONBOARDING_STEP_STATUS = z.enum(["PENDING", "DONE", "SKIPPED"]);
+
+server.tool(
+  "get_client_onboarding",
+  "The onboarding checklist for one client (by User _id), or null if there is none / it was dismissed. " +
+    "Returns each step's key, type, title, status (PENDING|DONE|SKIPPED) and any auto-setup error, plus completed/total counts.",
+  { clientId: z.string().min(1) },
+  READ_ONLY,
+  async ({ clientId }) =>
+    guard(() =>
+      gql(
+        `query CO($clientId: ID!) {
+           clientOnboarding(clientId: $clientId) {
+             _id clientId status completedStepCount totalStepCount startedAt completedAt
+             client { _id name }
+             steps { key type title description status autoProvision linkedEntityId autoProvisionError completedAt completedByRole }
+           }
+         }`,
+        { clientId }
+      )
+    )
+);
+
+server.tool(
+  "list_clients_needing_onboarding",
+  "Clients whose onboarding checklist is still in progress — the coach's 'clients to set up' list. " +
+    "Each entry has the client, status and completed/total step counts.",
+  {},
+  READ_ONLY,
+  async () =>
+    guard(() =>
+      gql(
+        `query CNO {
+           clientsNeedingOnboarding {
+             _id clientId status completedStepCount totalStepCount startedAt
+             client { _id name }
+             steps { key type title status }
+           }
+         }`
+      )
+    )
+);
+
+server.tool(
+  "mark_client_onboarding_step",
+  "Set one onboarding step's status (confirm-gated). Use get_client_onboarding for the step `key`. " +
+    "status: DONE to tick it off, SKIPPED to skip it, PENDING to reopen. The instance auto-completes when every step is DONE or SKIPPED.",
+  { clientId: z.string().min(1), stepKey: z.string().min(1), status: ONBOARDING_STEP_STATUS, ...confirmField },
+  async ({ confirm, clientId, stepKey, status }) => {
+    if (!confirm) return preview("mark_client_onboarding_step", { clientId, stepKey, status });
+    return guard(() =>
+      gql(
+        `mutation MCOS($clientId: ID!, $stepKey: String!, $status: ClientOnboardingStepStatus!) {
+           markClientOnboardingStep(clientId: $clientId, stepKey: $stepKey, status: $status) {
+             _id status completedStepCount totalStepCount
+             steps { key status }
+           }
+         }`,
+        { clientId, stepKey, status }
+      )
+    );
+  }
+);
+
+server.tool(
+  "dismiss_client_onboarding",
+  "Close a client's onboarding checklist without finishing it (confirm-gated) — it stops showing up and stops nudging.",
+  { clientId: z.string().min(1), ...confirmField },
+  async ({ confirm, clientId }) => {
+    if (!confirm) return preview("dismiss_client_onboarding", { clientId });
+    return guard(() =>
+      gql(
+        `mutation DCO($clientId: ID!) { dismissClientOnboarding(clientId: $clientId) { _id status } }`,
+        { clientId }
+      )
+    );
+  }
+);
+
 /* ═════════════════════════ Ratings ═════════════════════════
  * Read-only: a coach checking their own client reviews. Clients rate their
  * coach from the client app — there is no coach-initiated write here. */
@@ -2247,6 +2334,11 @@ const SERVER_INSTRUCTIONS = [
   "",
   "Photo analysis needs three calls in order: list_checkins -> get_checkin_answers (pulls PHOTO answer",
   "URLs) -> get_client_images (fetches them as base64).",
+  "",
+  "New-client onboarding: get_client_onboarding shows one client's setup checklist;",
+  "list_clients_needing_onboarding is the coach's 'still to set up' list. The backend auto-runs some",
+  "steps and reconciles the rest (a step flips to DONE once its plan/check-in/habit/session exists), so",
+  "usually you only mark_client_onboarding_step for the manual ones (e.g. the kickoff call).",
 ].join("\n");
 
 /** Build a fully-registered MCP server instance. */
