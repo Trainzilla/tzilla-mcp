@@ -544,34 +544,34 @@ const PAGE = { pageNumber: 1, pageSize: 50 };
 
 server.tool(
   "list_workout_plans",
-  "List a client's workout plans (id, title, dates). Pass the client's user _id.",
-  { clientId: z.string().min(1) },
+  "Read a client's workout plans, including the complete exercise prescriptions. Use before editing a plan or checking whether a creation already succeeded. Results are paginated.",
+  { clientId: z.string().min(1), pageNumber: z.number().int().positive().default(1), limit: z.number().int().min(1).max(20).default(5) },
   READ_ONLY,
-  async ({ clientId }) =>
-    guard(() =>
-      gql(
-        `query WP($clientId: ID!, $p: PaginationInput!) {
-           workoutPlansForClient(clientId: $clientId, pagination: $p) { _id title startDate endDate createdAt }
-         }`,
-        { clientId, p: PAGE }
-      )
-    )
+  async ({ clientId, pageNumber, limit }) => guard(() => gql(
+    `query WP($clientId: ID!, $p: PaginationInput!) {
+      workoutPlansForClient(clientId: $clientId, pagination: $p) {
+        _id clientId trainerId title description startDate endDate createdAt days
+        exercises { exerciseId name sets reps restSeconds order section notes modality rounds durationSeconds distanceMeters recoverySeconds targetPace effort }
+      }
+    }`,
+    { clientId, p: { pageNumber, pageSize: limit } }
+  ))
 );
 
 server.tool(
   "list_diet_plans",
-  "List a client's diet plans (id, title, dates). Pass the client's user _id.",
-  { clientId: z.string().min(1) },
+  "Read a client's diet plans, including every meal and ingredient quantity. Use before changing a plan or checking whether a creation already succeeded. Results are paginated.",
+  { clientId: z.string().min(1), pageNumber: z.number().int().positive().default(1), limit: z.number().int().min(1).max(20).default(5) },
   READ_ONLY,
-  async ({ clientId }) =>
-    guard(() =>
-      gql(
-        `query DP($clientId: ID!, $p: PaginationInput!) {
-           dietPlansForClient(clientId: $clientId, pagination: $p) { _id title startDate endDate createdAt }
-         }`,
-        { clientId, p: PAGE }
-      )
-    )
+  async ({ clientId, pageNumber, limit }) => guard(() => gql(
+    `query DP($clientId: ID!, $p: PaginationInput!) {
+      dietPlansForClient(clientId: $clientId, pagination: $p) {
+        _id clientId trainerId title description startDate endDate createdAt
+        meals { name description scheduledTime order section days calories macros { protein carbs fat fiber portionSizeG } ingredients { name quantity unit calories protein carbs fat isCookingAddition } }
+      }
+    }`,
+    { clientId, p: { pageNumber, pageSize: limit } }
+  ))
 );
 
 server.tool(
