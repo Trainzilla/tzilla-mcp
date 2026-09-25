@@ -2048,10 +2048,10 @@ server.tool(
 
 server.tool(
   "get_organization_seat_usage",
-  "How many of the organization's paid coach seats are used vs. the current plan's limit.",
+  "Coach seats used vs. the plan's limit, plus billing state (NONE/TRIAL/ACTIVE/CANCELLING/PAYMENT_FAILED/ENDED), renewal date, scheduled cancel/downgrade, and coaches over the limit.",
   { organizationId: z.string().min(1) },
   READ_ONLY,
-  async ({ organizationId }) => guard(() => gql(`query S($organizationId: ID!) { organizationSeatUsage(organizationId: $organizationId) { tier seatLimit seatsUsed hasActiveSubscription } }`, { organizationId }))
+  async ({ organizationId }) => guard(() => gql(`query S($organizationId: ID!) { organizationSeatUsage(organizationId: $organizationId) { tier seatLimit seatsUsed hasActiveSubscription state billingMode currency currentPeriodEnd cancelAtPeriodEnd pendingTier trialEndsAt overSeatLimit } }`, { organizationId }))
 );
 
 server.tool(
