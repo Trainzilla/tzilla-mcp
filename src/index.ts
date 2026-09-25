@@ -1957,7 +1957,9 @@ server.tool(
  * razorpaySignature produced by Razorpay's checkout widget after an actual
  * payment completes — nothing an AI agent can produce or drive — so wiring
  * only the first half would create a subscription intent this tool can
- * never finish. Seat/billing changes stay a human action in the app. */
+ * never finish. Seat/billing changes (subscribe, cancel, resume, tier change)
+ * stay a human action in the app; billing is readable via
+ * get_organization_seat_usage / list_organization_seat_tiers. */
 
 server.tool(
   "list_my_organizations",
@@ -1977,7 +1979,7 @@ server.tool(
       gql(
         `query H($organizationId: ID!) { organizationHierarchy(organizationId: $organizationId) {
            overview { totalCoaches totalLocations totalPendingInvites }
-           members { coach { userId name } organizationRole clientCount revenue }
+           members { coach { userId user { name } } organizationRole clientCount revenue }
            locations { location { _id name } totalClients totalRevenue }
            pendingInvites { invitationId email organizationRole expiresAt }
          } }`,
@@ -2003,7 +2005,7 @@ server.tool(
     guard(() =>
       gql(
         `query C($organizationId: ID!, $locationId: ID) { organizationCoaches(organizationId: $organizationId, locationId: $locationId) {
-           coach { userId name } role location { name } clientCount revenue
+           coach { userId user { name } } role location { name } clientCount revenue
          } }`,
         { organizationId, locationId }
       )
@@ -2020,7 +2022,7 @@ server.tool(
       gql(
         `query OC($organizationId: ID!, $locationId: ID, $coachId: ID, $p: PaginationInput!) {
            organizationClients(organizationId: $organizationId, locationId: $locationId, coachId: $coachId, pagination: $p) {
-             profileId user { _id name email } coach { name } location { name }
+             profileId user { _id name email } coach { user { name } } location { name }
            }
          }`,
         { organizationId, locationId, coachId, p: { pageNumber, pageSize } }
@@ -2064,7 +2066,7 @@ server.tool(
       gql(
         `query A($organizationId: ID!, $attendanceDate: String!, $locationId: ID) { organizationCoachAttendance(organizationId: $organizationId, attendanceDate: $attendanceDate, locationId: $locationId) {
            totalPresent totalAbsent totalLate totalLeave
-           entries { coach { name } location { name } record { status notes } }
+           entries { coach { user { name } } location { name } record { status notes } }
          } }`,
         { organizationId, attendanceDate, locationId }
       )
@@ -2163,7 +2165,7 @@ server.tool(
     if (!confirm) return preview("update_organization_coach_role", args);
     return guard(() =>
       gql(
-        `mutation R($organizationId: ID!, $coachId: ID!, $role: OrganizationRole!) { updateOrganizationCoachRole(organizationId: $organizationId, coachId: $coachId, role: $role) { coach { name } organizationRole } }`,
+        `mutation R($organizationId: ID!, $coachId: ID!, $role: OrganizationRole!) { updateOrganizationCoachRole(organizationId: $organizationId, coachId: $coachId, role: $role) { coach { user { name } } organizationRole } }`,
         args
       )
     );
@@ -2185,7 +2187,7 @@ server.tool(
     if (!confirm) return preview("assign_coach_to_location", { ...args, makePrimary });
     return guard(() =>
       gql(
-        `mutation A($input: UpsertOrganizationLocationAssignmentInput!) { upsertOrganizationLocationAssignment(input: $input) { coach { name } locationAssignments { location { name } role isPrimary } } }`,
+        `mutation A($input: UpsertOrganizationLocationAssignmentInput!) { upsertOrganizationLocationAssignment(input: $input) { coach { user { name } } locationAssignments { location { name } role isPrimary } } }`,
         { input: { ...args, makePrimary: makePrimary ?? false } }
       )
     );
@@ -2199,7 +2201,7 @@ server.tool(
   async ({ confirm, ...args }) => {
     if (!confirm) return preview("remove_coach_location_assignment", args);
     return guard(() =>
-      gql(`mutation R($input: RemoveOrganizationLocationAssignmentInput!) { removeOrganizationLocationAssignment(input: $input) { coach { name } } }`, { input: args })
+      gql(`mutation R($input: RemoveOrganizationLocationAssignmentInput!) { removeOrganizationLocationAssignment(input: $input) { coach { user { name } } } }`, { input: args })
     );
   }
 );
@@ -2227,7 +2229,7 @@ server.tool(
     if (!confirm) return preview("reassign_client_to_coach", args);
     return guard(() =>
       gql(
-        `mutation RC($organizationId: ID!, $profileId: ID!, $coachId: ID!) { reassignClient(organizationId: $organizationId, profileId: $profileId, coachId: $coachId) { profileId coach { name } } }`,
+        `mutation RC($organizationId: ID!, $profileId: ID!, $coachId: ID!) { reassignClient(organizationId: $organizationId, profileId: $profileId, coachId: $coachId) { profileId coach { user { name } } } }`,
         args
       )
     );
@@ -2254,6 +2256,494 @@ server.tool(
         { input: { ...input, source: "MANUAL" } }
       )
     );
+  }
+);
+
+/* ───────────────────────── Gym: access, home, roles ─────────────────────────
+ * What each member can do is capability-driven (see organization_access). The
+ * server enforces every one of these; the descriptions say who is allowed so
+ * the agent doesn't try a call the coach's role can't make. */
+
+server.tool(
+  "get_organization_access",
+  "The coach's own role in a gym and the exact capabilities it grants (including a custom role's name). Call this first to know which gym tools this coach may use.",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) =>
+    guard(() =>
+      gql(
+        `query A($organizationId: ID!) { organizationAccess(organizationId: $organizationId) { role isOwner customRoleName capabilities { key label scope } } }`,
+        { organizationId }
+      )
+    )
+);
+
+server.tool(
+  "get_organization_role_guide",
+  "What each built-in gym role (OWNER, ADMIN, PRIMARY_COACH, COACH) is allowed to do.",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) =>
+    guard(() =>
+      gql(
+        `query G($organizationId: ID!) { organizationRoleGuide(organizationId: $organizationId) { role capabilities { key label scope } } }`,
+        { organizationId }
+      )
+    )
+);
+
+server.tool(
+  "get_gym_home",
+  "Role-scoped gym overview: client and coach counts, this/last month revenue, new leads, today's classes, recent announcements, and billing state. Fields the coach's role can't see come back null.",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) =>
+    guard(() =>
+      gql(
+        `query H($organizationId: ID!) { gymHome(organizationId: $organizationId) {
+           role customRoleName scopeLabel totalClients coachCount
+           revenue { thisMonth lastMonth growthPercent paymentCount }
+           leads { newCount total }
+           todaysClasses { _id title startAt endAt instructorName bookedCount capacity }
+           announcements { _id title body createdAt }
+           billing { state seatsUsed seatLimit trialEndsAt currentPeriodEnd }
+         } }`,
+        { organizationId }
+      )
+    )
+);
+
+server.tool(
+  "list_organization_custom_roles",
+  "Custom roles defined for a gym (name, the capabilities each carries, member count), plus who holds which role and the capabilities that can be delegated to a custom role.",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) =>
+    guard(() =>
+      gql(
+        `query R($organizationId: ID!) {
+           organizationCustomRoles(organizationId: $organizationId) { _id name description capabilities memberCount }
+           organizationMemberCustomRoles(organizationId: $organizationId) { userId roleId roleName }
+           organizationDelegableCapabilities { key label }
+         }`,
+        { organizationId }
+      )
+    )
+);
+
+server.tool(
+  "create_organization_custom_role",
+  "Create a custom gym role from delegable capabilities (confirm-gated). Owner only. Use list_organization_custom_roles for the valid capability keys — billing, roster, payouts and ownership can't be delegated.",
+  {
+    organizationId: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().optional(),
+    capabilities: z.array(z.string().min(1)).min(1),
+    ...confirmField,
+  },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("create_organization_custom_role", args);
+    return guard(() =>
+      gql(
+        `mutation C($organizationId: ID!, $name: String!, $description: String, $capabilities: [String!]!) { createOrganizationRole(organizationId: $organizationId, name: $name, description: $description, capabilities: $capabilities) { _id name capabilities } }`,
+        args
+      )
+    );
+  }
+);
+
+server.tool(
+  "update_organization_custom_role",
+  "Replace a custom role's name, description and capabilities (confirm-gated). Owner only. Sends the full capability list, and changes access for everyone who holds the role.",
+  {
+    organizationId: z.string().min(1),
+    roleId: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().optional(),
+    capabilities: z.array(z.string().min(1)).min(1),
+    ...confirmField,
+  },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("update_organization_custom_role", args);
+    return guard(() =>
+      gql(
+        `mutation U($organizationId: ID!, $roleId: ID!, $name: String!, $description: String, $capabilities: [String!]!) { updateOrganizationRole(organizationId: $organizationId, roleId: $roleId, name: $name, description: $description, capabilities: $capabilities) { _id name capabilities memberCount } }`,
+        args
+      )
+    );
+  }
+);
+
+server.tool(
+  "delete_organization_custom_role",
+  "Delete a custom gym role (confirm-gated). Owner only. Get explicit confirmation of exactly which role first — members holding it lose its access.",
+  { organizationId: z.string().min(1), roleId: z.string().min(1), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("delete_organization_custom_role", args);
+    return guard(() =>
+      gql(`mutation D($organizationId: ID!, $roleId: ID!) { deleteOrganizationRole(organizationId: $organizationId, roleId: $roleId) }`, args)
+    );
+  }
+);
+
+server.tool(
+  "assign_organization_member_role",
+  "Give a gym member a custom role, or clear it by omitting roleId (confirm-gated). Owner or admin — an access-control change, so confirm exactly which member and role first.",
+  { organizationId: z.string().min(1), memberUserId: z.string().min(1), roleId: z.string().optional(), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("assign_organization_member_role", args);
+    return guard(() =>
+      gql(
+        `mutation A($organizationId: ID!, $memberUserId: ID!, $roleId: ID) { assignOrganizationMemberRole(organizationId: $organizationId, memberUserId: $memberUserId, roleId: $roleId) }`,
+        args
+      )
+    );
+  }
+);
+
+/* ───────────────────────── Gym: profile, AI rules, announcements ───────────────────────── */
+
+server.tool(
+  "get_organization_profile",
+  "A gym's public-facing profile and settings: description, contact, city, public page slug/visibility, branding, community switch, AI guidelines and payout mode. Use list_my_organizations for the id.",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) =>
+    guard(async () => {
+      const data = await gql<{ organizations: Record<string, unknown>[] }>(
+        `query { organizations { _id name isActive myRole description logoUrl contactEmail contactPhone city publicSlug isPublic brandingEnabled brandColor communityEnabled aiGuidelines payoutMode } }`
+      );
+      const org = data.organizations.find((o) => o._id === organizationId);
+      if (!org) throw new Error("Organization not found among the coach's organizations.");
+      return org;
+    })
+);
+
+server.tool(
+  "update_organization_profile",
+  "Update a gym's profile (confirm-gated). Only the fields you pass change. isPublic publishes or unpublishes the gym's public page; brandingEnabled/brandColor apply the gym's brand to every coach's client-facing surfaces.",
+  {
+    organizationId: z.string().min(1),
+    name: z.string().min(1).optional(),
+    description: z.string().optional(),
+    contactEmail: z.string().email().optional(),
+    contactPhone: z.string().optional(),
+    city: z.string().optional(),
+    isPublic: z.boolean().optional(),
+    brandingEnabled: z.boolean().optional(),
+    brandColor: z.string().optional().describe("Hex colour, e.g. #1F6FEB"),
+    communityEnabled: z.boolean().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, organizationId, ...input }) => {
+    if (!confirm) return preview("update_organization_profile", { organizationId, ...input });
+    return guard(() =>
+      gql(
+        `mutation P($organizationId: ID!, $input: OrganizationProfileInput!) { updateOrganizationProfile(organizationId: $organizationId, input: $input) { _id name isPublic publicSlug brandingEnabled communityEnabled } }`,
+        { organizationId, input }
+      )
+    );
+  }
+);
+
+server.tool(
+  "update_organization_ai_guidelines",
+  "Set the gym-wide rules the AI assistant and AI coach follow for every coach and client in the gym (confirm-gated). Replaces the whole text — read get_organization_profile first to edit rather than overwrite.",
+  { organizationId: z.string().min(1), guidelines: z.string(), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("update_organization_ai_guidelines", args);
+    return guard(() =>
+      gql(
+        `mutation G($organizationId: ID!, $guidelines: String!) { updateOrganizationAiGuidelines(organizationId: $organizationId, guidelines: $guidelines) { _id aiGuidelines } }`,
+        args
+      )
+    );
+  }
+);
+
+server.tool(
+  "list_organization_announcements",
+  "Announcements previously sent to a gym's coaches and/or clients, with audience and reach.",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) =>
+    guard(() =>
+      gql(
+        `query N($organizationId: ID!) { organizationAnnouncements(organizationId: $organizationId) { _id title body audience locationId coachCount clientCount createdAt } }`,
+        { organizationId }
+      )
+    )
+);
+
+server.tool(
+  "send_organization_announcement",
+  "Send an announcement to a gym's coaches, clients, or everyone (confirm-gated). Irreversible: recipients get an in-app notice, and a real email if alsoEmail is true. Show the coach the exact text and audience first.",
+  {
+    organizationId: z.string().min(1),
+    title: z.string().min(1),
+    body: z.string().min(1),
+    audience: z.enum(["COACHES", "CLIENTS", "ALL"]),
+    locationId: z.string().optional().describe("Limit to one location"),
+    alsoEmail: z.boolean().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, organizationId, ...input }) => {
+    if (!confirm) return preview("send_organization_announcement", { organizationId, ...input });
+    return guard(() =>
+      gql(
+        `mutation S($organizationId: ID!, $input: SendGymAnnouncementInput!) { sendGymAnnouncement(organizationId: $organizationId, input: $input) { _id title audience coachCount clientCount } }`,
+        { organizationId, input }
+      )
+    );
+  }
+);
+
+/* ───────────────────────── Gym: classes & attendance ───────────────────────── */
+
+server.tool(
+  "list_gym_classes",
+  "A gym's recurring class definitions (weekdays, start time, capacity, instructor, location).",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) =>
+    guard(() =>
+      gql(
+        `query C($organizationId: ID!) { gymClasses(organizationId: $organizationId) { _id title description instructorCoachId locationId capacity durationMinutes weekdays startTime timezone isActive } }`,
+        { organizationId }
+      )
+    )
+);
+
+server.tool(
+  "list_gym_class_sessions",
+  "Dated class sessions in a window, with bookings, waitlist and spots left. Defaults to the server's default window if from/to are omitted.",
+  {
+    organizationId: z.string().min(1),
+    from: z.string().optional().describe("ISO date"),
+    to: z.string().optional().describe("ISO date"),
+    locationId: z.string().optional(),
+  },
+  READ_ONLY,
+  async ({ organizationId, from, to, locationId }) =>
+    guard(() =>
+      gql(
+        `query S($organizationId: ID!, $from: Date, $to: Date, $locationId: ID) { gymClassSessions(organizationId: $organizationId, from: $from, to: $to, locationId: $locationId) {
+           _id classId title instructorName locationId startAt endAt capacity bookedCount waitlistCount spotsLeft status
+         } }`,
+        { organizationId, from, to, locationId }
+      )
+    )
+);
+
+server.tool(
+  "get_gym_class_roster",
+  "Who is booked into one class session and whether they attended. Use list_gym_class_sessions for the session id.",
+  { sessionId: z.string().min(1) },
+  READ_ONLY,
+  async ({ sessionId }) =>
+    guard(() => gql(`query R($sessionId: ID!) { gymClassRoster(sessionId: $sessionId) { userId name status attendedAt } }`, { sessionId }))
+);
+
+server.tool(
+  "get_gym_attendance_summary",
+  "Member attendance (booked / attended / no-show) and per-class fill rate over a date range.",
+  { organizationId: z.string().min(1), from: z.string().optional(), to: z.string().optional() },
+  READ_ONLY,
+  async ({ organizationId, from, to }) =>
+    guard(() =>
+      gql(
+        `query A($organizationId: ID!, $from: Date, $to: Date) { gymAttendanceSummary(organizationId: $organizationId, from: $from, to: $to) {
+           members { userId name booked attended noShow }
+           classes { classId title sessions booked capacity fillRate }
+         } }`,
+        { organizationId, from, to }
+      )
+    )
+);
+
+const gymClassFields = {
+  title: z.string().min(1),
+  description: z.string().optional(),
+  instructorCoachId: z.string().optional(),
+  locationId: z.string().optional(),
+  capacity: z.number().int().positive(),
+  durationMinutes: z.number().int().positive(),
+  weekdays: z.array(z.number().int().min(0).max(6)).min(1).describe("0 = Sunday … 6 = Saturday"),
+  startTime: z.string().min(1).describe("HH:mm, in the class timezone"),
+  timezone: z.string().optional().describe("IANA name, e.g. Asia/Kolkata"),
+};
+
+server.tool(
+  "create_gym_class",
+  "Create a recurring gym class (confirm-gated). Members can then book its sessions.",
+  { organizationId: z.string().min(1), ...gymClassFields, ...confirmField },
+  async ({ confirm, organizationId, ...input }) => {
+    if (!confirm) return preview("create_gym_class", { organizationId, ...input });
+    return guard(() =>
+      gql(
+        `mutation C($organizationId: ID!, $input: GymClassInput!) { createGymClass(organizationId: $organizationId, input: $input) { _id title weekdays startTime capacity } }`,
+        { organizationId, input }
+      )
+    );
+  }
+);
+
+server.tool(
+  "update_gym_class",
+  "Replace a recurring class's definition (confirm-gated). Sends every field — read list_gym_classes first.",
+  { classId: z.string().min(1), ...gymClassFields, ...confirmField },
+  async ({ confirm, classId, ...input }) => {
+    if (!confirm) return preview("update_gym_class", { classId, ...input });
+    return guard(() =>
+      gql(
+        `mutation U($classId: ID!, $input: GymClassInput!) { updateGymClass(classId: $classId, input: $input) { _id title weekdays startTime capacity } }`,
+        { classId, input }
+      )
+    );
+  }
+);
+
+server.tool(
+  "deactivate_gym_class",
+  "Stop a recurring class from running (confirm-gated).",
+  { classId: z.string().min(1), ...confirmField },
+  async ({ confirm, classId }) => {
+    if (!confirm) return preview("deactivate_gym_class", { classId });
+    return guard(() => gql(`mutation D($classId: ID!) { deactivateGymClass(classId: $classId) }`, { classId }));
+  }
+);
+
+server.tool(
+  "cancel_gym_class_session",
+  "Cancel one dated class session (confirm-gated). Booked members are affected — confirm which session first.",
+  { sessionId: z.string().min(1), reason: z.string().optional(), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("cancel_gym_class_session", args);
+    return guard(() => gql(`mutation X($sessionId: ID!, $reason: String) { cancelGymClassSession(sessionId: $sessionId, reason: $reason) }`, args));
+  }
+);
+
+server.tool(
+  "mark_gym_class_attendance",
+  "Record who attended a class session (confirm-gated). Get member userIds from get_gym_class_roster.",
+  {
+    sessionId: z.string().min(1),
+    entries: z.array(z.object({ userId: z.string().min(1), attended: z.boolean() })).min(1),
+    ...confirmField,
+  },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("mark_gym_class_attendance", args);
+    return guard(() =>
+      gql(`mutation M($sessionId: ID!, $entries: [GymAttendanceEntryInput!]!) { markGymClassAttendance(sessionId: $sessionId, entries: $entries) }`, args)
+    );
+  }
+);
+
+/* ───────────────────────── Gym: plans, earnings, leads ───────────────────────── */
+
+server.tool(
+  "list_organization_plans",
+  "The gym-owned membership plans clients can buy through any of the gym's coaches.",
+  { organizationId: z.string().min(1) },
+  READ_ONLY,
+  async ({ organizationId }) =>
+    guard(() => gql(`query P($organizationId: ID!) { organizationPlans(organizationId: $organizationId) { _id name description amount currency period interval isActive } }`, { organizationId }))
+);
+
+server.tool(
+  "get_organization_earnings",
+  "Gym earnings statement for a period: total, per-coach totals, and each payment with who sold it and who coaches that client now, plus the payout mode. Amounts are in the smallest currency unit. Payouts are settled outside the app.",
+  { organizationId: z.string().min(1), from: z.string().optional(), to: z.string().optional() },
+  READ_ONLY,
+  async ({ organizationId, from, to }) =>
+    guard(() =>
+      gql(
+        `query E($organizationId: ID!, $from: Date, $to: Date) { organizationEarnings(organizationId: $organizationId, from: $from, to: $to) {
+           payoutMode payoutDestination totalAmount paymentCount truncated
+           byCoach { coachName amount payments }
+           rows { paymentId date amount currency clientName soldByName nowCoachedByName locationName }
+         } }`,
+        { organizationId, from, to }
+      )
+    )
+);
+
+server.tool(
+  "list_organization_prospects",
+  "The gym's shared lead pipeline (people who enquired via the gym page or were added by coaches), optionally filtered by status or coach. Use update_prospect_status / add_prospect_note with the returned _id.",
+  { organizationId: z.string().min(1), status: PROSPECT_STATUS.optional(), coachId: z.string().optional() },
+  READ_ONLY,
+  async ({ organizationId, status, coachId }) =>
+    guard(() =>
+      gql(
+        `query P($organizationId: ID!, $status: ProspectStatus, $coachId: ID) {
+           organizationProspects(organizationId: $organizationId, status: $status, coachId: $coachId) {
+             _id name phone email goal status source coachId notes { text createdAt } convertedClientId createdAt
+           }
+           organizationProspectStats(organizationId: $organizationId) { new contacted converted lost total }
+         }`,
+        { organizationId, status, coachId }
+      )
+    )
+);
+
+server.tool(
+  "list_organization_seat_tiers",
+  "The gym subscription tiers on offer: seat limit, billing mode and price per currency (smallest unit). For a gym deciding what to buy or upgrade to.",
+  {},
+  READ_ONLY,
+  async () => guard(() => gql(`query { organizationSeatTiers { tier name description seatLimit billingMode prices { currency amount } } }`))
+);
+
+server.tool(
+  "list_organization_payments",
+  "Payments received across the gym (all coaches), newest first. Amounts are in the smallest currency unit.",
+  { organizationId: z.string().min(1), pageNumber: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(100).default(50) },
+  READ_ONLY,
+  async ({ organizationId, pageNumber, pageSize }) =>
+    guard(() =>
+      gql(
+        `query P($organizationId: ID!, $p: PaginationInput!) { organizationPayments(organizationId: $organizationId, pagination: $p) {
+           _id amount currency status method purchaseDate description client { name } trainer { name } plan { name }
+         } }`,
+        { organizationId, p: { pageNumber, pageSize } }
+      )
+    )
+);
+
+/* ───────────────────────── Gym: lifecycle ───────────────────────── */
+
+server.tool(
+  "leave_organization",
+  "Leave a gym as a coach (confirm-gated) — high impact: the coach's clients are handed to transferClientCoachId if given. Not for owners (transfer ownership first). Get explicit confirmation before calling with confirm: true.",
+  { organizationId: z.string().min(1), transferClientCoachId: z.string().optional(), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("leave_organization", args);
+    return guard(() =>
+      gql(`mutation L($organizationId: ID!, $transferClientCoachId: ID) { leaveOrganization(organizationId: $organizationId, transferClientCoachId: $transferClientCoachId) }`, args)
+    );
+  }
+);
+
+server.tool(
+  "transfer_organization_ownership",
+  "Hand a gym to another member (confirm-gated) — owner only and irreversible by the current owner; gym-owned plans move to the new owner. Get explicit confirmation of exactly who becomes the owner before calling with confirm: true.",
+  { organizationId: z.string().min(1), newOwnerUserId: z.string().min(1), ...confirmField },
+  async ({ confirm, ...args }) => {
+    if (!confirm) return preview("transfer_organization_ownership", args);
+    return guard(() =>
+      gql(`mutation T($organizationId: ID!, $newOwnerUserId: ID!) { transferOrganizationOwnership(organizationId: $organizationId, newOwnerUserId: $newOwnerUserId) { _id name ownerUserId } }`, args)
+    );
+  }
+);
+
+server.tool(
+  "close_organization",
+  "Close a gym (confirm-gated) — owner only, high impact: unlists its plans and public page and releases its coaches. Blocked while gym-plan subscribers are live. Get explicit, typed-out confirmation of which gym before calling with confirm: true.",
+  { organizationId: z.string().min(1), ...confirmField },
+  async ({ confirm, organizationId }) => {
+    if (!confirm) return preview("close_organization", { organizationId });
+    return guard(() => gql(`mutation C($organizationId: ID!) { closeOrganization(organizationId: $organizationId) }`, { organizationId }));
   }
 );
 
@@ -2339,6 +2829,12 @@ const SERVER_INSTRUCTIONS = [
   "list_clients_needing_onboarding is the coach's 'still to set up' list. The backend auto-runs some",
   "steps and reconciles the rest (a step flips to DONE once its plan/check-in/habit/session exists), so",
   "usually you only mark_client_onboarding_step for the manual ones (e.g. the kickoff call).",
+  "",
+  "Gyms (organizations): what a coach may do is set by their role and any custom role. Call",
+  "get_organization_access first; tools it doesn't cover will be refused server-side. Inside a gym,",
+  "plans, leads (list_organization_prospects) and earnings are gym-level, not per coach. Announcements,",
+  "role changes, ownership transfer and closing a gym are outward-facing or irreversible: show the",
+  "coach exactly what will happen before confirm: true.",
 ].join("\n");
 
 /** Build a fully-registered MCP server instance. */
