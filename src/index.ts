@@ -1313,7 +1313,11 @@ server.tool(
  * WhatsApp, or entered by hand. Distinct from Clients: a prospect has not
  * signed up on the platform yet. */
 
-const PROSPECT_STATUS = z.enum(["NEW", "CONTACTED", "CONVERTED", "LOST"]);
+const PROSPECT_STATUS = z.enum([
+  "NEW", "CONTACTED", "HOT", "WARM", "DID_NOT_PICK_UP",
+  "CONVERTED", "NOT_INTERESTED", "LOW_BUDGET", "OUT_OF_RADIUS",
+  "LOST", // legacy catch-all; prefer the specific outcomes above
+]);
 
 server.tool(
   "list_prospects",
@@ -1335,10 +1339,10 @@ server.tool(
 
 server.tool(
   "get_prospect_stats",
-  "Counts of prospects by pipeline stage (new / contacted / converted / lost) for the coach.",
+  "Counts of prospects by pipeline stage (new / contacted / hot / warm / did not pick up / converted / not interested / low budget / out of radius / legacy lost) for the coach.",
   {},
   READ_ONLY,
-  async () => guard(() => gql(`query { prospectStats { new contacted converted lost total } }`))
+  async () => guard(() => gql(`query { prospectStats { new contacted hot warm didNotPickUp converted notInterested lowBudget outOfRadius lost total } }`))
 );
 
 server.tool(
@@ -2680,7 +2684,7 @@ server.tool(
            organizationProspects(organizationId: $organizationId, status: $status, coachId: $coachId) {
              _id name phone email goal status source coachId notes { text createdAt } convertedClientId createdAt
            }
-           organizationProspectStats(organizationId: $organizationId) { new contacted converted lost total }
+           organizationProspectStats(organizationId: $organizationId) { new contacted hot warm didNotPickUp converted notInterested lowBudget outOfRadius lost total }
          }`,
         { organizationId, status, coachId }
       )
