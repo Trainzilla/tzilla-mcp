@@ -1808,7 +1808,7 @@ server.tool(
                mediaLinks { name link }
              }
              contact { phone addressLine1 addressLine2 city state country postalCode }
-             availability { preferredTime daysAvailable checkIn checkOut timezone }
+             availability { preferredTime daysAvailable checkIn checkOut timeRanges { start end } timezone }
              transformations { clientName timeline beforeImages afterImages transformationGoal resultsAndAchievements }
              testimonials { clientName profileImage note }
            }
@@ -1887,12 +1887,17 @@ server.tool(
 
 server.tool(
   "update_my_availability",
-  "Update when the coach is bookable for sessions (confirm-gated). This is the same availability that drives trainerAvailableHourSlotsNext7Days / session booking.",
+  "Update when the coach is bookable for sessions (confirm-gated). This is the same availability that drives trainerAvailableHourSlotsNext7Days / session booking. Working hours can be split: pass timeRanges, e.g. [{start:'05:00',end:'09:00'},{start:'18:00',end:'22:00'}] — slots are only offered inside them. checkIn/checkOut is the older single-window form.",
   {
     preferredTime: z.string(),
     daysAvailable: z.array(z.string()).min(1),
-    checkIn: z.string().regex(/^\d{2}:\d{2}$/),
-    checkOut: z.string().regex(/^\d{2}:\d{2}$/),
+    timeRanges: z
+      .array(z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/) }))
+      .min(1)
+      .max(6)
+      .optional(),
+    checkIn: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    checkOut: z.string().regex(/^\d{2}:\d{2}$/).optional(),
     timezone: z.string(),
     ...confirmField,
   },
