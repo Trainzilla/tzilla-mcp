@@ -1021,10 +1021,10 @@ server.tool(
 
 server.tool(
   "schedule_session",
-  "Book a session for a client (confirm-gated). Needs the client's subscriptionId (see list_subscriptions). Times are ISO strings.",
+  "Book a session for a client (confirm-gated). Pass the client's active subscriptionId when they have one (see list_subscriptions) so it counts against their plan's sessions; omit it for intro/one-off calls or clients without a plan — the coach can still book. Times are ISO strings.",
   {
     clientId: z.string().min(1),
-    subscriptionId: z.string().min(1),
+    subscriptionId: z.string().min(1).optional(),
     type: z.enum(["IN_PERSON", "ONLINE"]).default("ONLINE"),
     scheduledStart: z.string().min(1),
     scheduledEnd: z.string().min(1),
