@@ -544,14 +544,14 @@ const PAGE = { pageNumber: 1, pageSize: 50 };
 
 server.tool(
   "list_workout_plans",
-  "List a client's workout plans (id, title, dates). Pass the client's user _id.",
+  "List a client's workout plans (id, title, dates, and the PDF it came from if any). Pass the client's user _id. This does NOT include the exercises — call get_workout_plan with a plan _id to read them.",
   { clientId: z.string().min(1) },
   READ_ONLY,
   async ({ clientId }) =>
     guard(() =>
       gql(
         `query WP($clientId: ID!, $p: PaginationInput!) {
-           workoutPlansForClient(clientId: $clientId, pagination: $p) { _id title startDate endDate createdAt }
+           workoutPlansForClient(clientId: $clientId, pagination: $p) { _id title startDate endDate createdAt document { fileName } }
          }`,
         { clientId, p: PAGE }
       )
@@ -560,16 +560,63 @@ server.tool(
 
 server.tool(
   "list_diet_plans",
-  "List a client's diet plans (id, title, dates). Pass the client's user _id.",
+  "List a client's diet plans (id, title, dates, and the PDF it came from if any). Pass the client's user _id. This does NOT include the meals — call get_diet_plan with a plan _id to read them.",
   { clientId: z.string().min(1) },
   READ_ONLY,
   async ({ clientId }) =>
     guard(() =>
       gql(
         `query DP($clientId: ID!, $p: PaginationInput!) {
-           dietPlansForClient(clientId: $clientId, pagination: $p) { _id title startDate endDate createdAt }
+           dietPlansForClient(clientId: $clientId, pagination: $p) { _id title startDate endDate createdAt document { fileName } }
          }`,
         { clientId, p: PAGE }
+      )
+    )
+);
+
+const PDF_PLAN_NOTE =
+  "If `document` is present with no exercises/meals, the plan IS the coach's PDF (shared as-is): `document.text` is what the PDF says. " +
+  "A null `document.text` means the PDF is scanned or unreadable — tell the coach to open the plan on the web and use \"Turn into a trackable plan\" so it can be read and edited.";
+
+server.tool(
+  "get_workout_plan",
+  "Full detail of one client workout plan: every exercise (sets, reps, rest, section, notes, cardio fields) and the original PDF's text when the plan came from a coach's PDF. Pass the plan _id from list_workout_plans. " +
+    PDF_PLAN_NOTE,
+  { planId: z.string().min(1) },
+  READ_ONLY,
+  async ({ planId }) =>
+    guard(() =>
+      gql(
+        `query WPById($id: ID!) {
+           workoutPlanById(id: $id) {
+             _id title description clientId days startDate endDate createdAt
+             exercises { name order section sets reps restSeconds notes modality rounds durationSeconds distanceMeters recoverySeconds targetPace effort exerciseId }
+             document { fileName text }
+           }
+         }`,
+        { id: planId }
+      )
+    )
+);
+
+server.tool(
+  "get_diet_plan",
+  "Full detail of one client diet plan: every meal (time, section, calories, macros, ingredients, notes) and the original PDF's text when the plan came from a coach's PDF. Pass the plan _id from list_diet_plans. " +
+    PDF_PLAN_NOTE,
+  { planId: z.string().min(1) },
+  READ_ONLY,
+  async ({ planId }) =>
+    guard(() =>
+      gql(
+        `query DPById($id: ID!) {
+           dietPlanById(id: $id) {
+             _id title description clientId startDate endDate createdAt totalCalories
+             totalMacros { protein carbs fat }
+             meals { name order section scheduledTime days description calories portionLabel notes macros { protein carbs fat } ingredients { name quantity unit } }
+             document { fileName text }
+           }
+         }`,
+        { id: planId }
       )
     )
 );
