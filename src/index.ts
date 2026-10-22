@@ -1339,6 +1339,18 @@ server.tool(
 );
 
 server.tool(
+  "mark_session_done",
+  "Mark one of the coach's own sessions as done/completed (confirm-gated). Counts toward the client's used sessions; also corrects a session wrongly left as a no-show. Safe to repeat; refused for cancelled sessions. Get the session id from list_sessions.",
+  { sessionId: z.string().min(1), ...confirmField },
+  async ({ confirm, sessionId }) => {
+    if (!confirm) return preview("mark_session_done", { sessionId });
+    return guard(() =>
+      gql(`mutation MSC($sessionId: ID!) { markSessionCompleted(sessionId: $sessionId) { _id status } }`, { sessionId })
+    );
+  }
+);
+
+server.tool(
   "send_message_to_client",
   "Send a chat message to one of the coach's clients (confirm-gated). It lands in the client's chat and sends them a push notification, exactly as if the coach typed it. Use the client's User._id (from list_clients). Write in the coach's voice, first person.",
   { clientId: z.string().min(1), text: z.string().min(1), ...confirmField },
