@@ -1367,6 +1367,126 @@ server.tool(
   }
 );
 
+/* ═════════════════════════ Workflows (Pro / gym) ═════════════════════════
+ * Client-triggered automations: WHEN something happens (missed check-in, inactivity, renewal…)
+ * THEN message the client. Rule-based steps are free; AI-drafted steps use the coach's AI credits
+ * and wait for the coach's approval by default. */
+
+const WORKFLOW_FIELDS = `id name templateKey enabled runCount lastRunAt
+  trigger { type days } actions { type text via requireApproval }`;
+
+server.tool(
+  "list_workflow_templates",
+  "List the workflow building blocks: the available triggers (with the {{variables}} each message may use) and the ready-made templates a coach can switch on with one call.",
+  {},
+  READ_ONLY,
+  async () =>
+    guard(() =>
+      gql(`query { workflowCatalog {
+        triggers { type label description daysLabel defaultDays variables }
+        templates { key name description trigger { type days } actions { type text via requireApproval } }
+      } workflowAccess { allowed tier } }`)
+    )
+);
+
+server.tool(
+  "list_workflows",
+  "List the coach's workflows (automations) with their trigger, action, on/off state and how often they have run.",
+  {},
+  READ_ONLY,
+  async () => guard(() => gql(`query { myWorkflows { ${WORKFLOW_FIELDS} } }`))
+);
+
+server.tool(
+  "list_workflow_runs",
+  "Recent workflow activity: each message a workflow sent (or drafted, or failed to send), with the client and the exact text. Optionally filter to one workflow.",
+  { workflowId: z.string().min(1).optional(), limit: z.number().int().min(1).max(200).default(30) },
+  READ_ONLY,
+  async ({ workflowId, limit }) =>
+    guard(() =>
+      gql(
+        `query R($workflowId: ID, $limit: Int) {
+           workflowRuns(workflowId: $workflowId, limit: $limit) {
+             id workflowId clientName triggerType status error renderedText creditsPaise createdAt
+           }
+         }`,
+        { workflowId, limit }
+      )
+    )
+);
+
+server.tool(
+  "create_workflow",
+  "Create a workflow (confirm-gated; Coach Pro or gym plan required). Either pass `templateKey` (from list_workflow_templates) to switch on a ready-made one, or give `name`, `triggerType`, optional `days`, and `actionType` + `text`. " +
+    "actionType 'send_message' sends `text` as written ({{clientName}} etc. allowed); 'ai_message' treats `text` as an instruction and has AI draft a message in the coach's voice, held for approval unless requireApproval is false; 'notify_coach' only reminds the coach. " +
+    "Safety limits are built in: 8am–9pm client-local time, max 2 workflow messages per client per day, each event fires once.",
+  {
+    templateKey: z.string().min(1).optional(),
+    name: z.string().min(1).max(80).optional(),
+    triggerType: z.string().min(1).optional(),
+    days: z.number().int().min(1).max(365).optional(),
+    actionType: z.enum(["send_message", "ai_message", "notify_coach"]).optional(),
+    text: z.string().min(1).max(1000).optional(),
+    via: z.enum(["chat", "push", "email"]).default("chat"),
+    requireApproval: z.boolean().default(true),
+    ...confirmField,
+  },
+  async ({ confirm, templateKey, name, triggerType, days, actionType, text, via, requireApproval }) => {
+    if (!templateKey && !(name && triggerType && actionType && text)) {
+      return fail("Pass templateKey, or all of name, triggerType, actionType and text.");
+    }
+    if (!confirm) return preview("create_workflow", { templateKey, name, triggerType, days, actionType, text, via, requireApproval });
+    if (templateKey) {
+      return guard(() =>
+        gql(`mutation T($templateKey: String!) { createWorkflowFromTemplate(templateKey: $templateKey) { ${WORKFLOW_FIELDS} } }`, { templateKey })
+      );
+    }
+    const input = {
+      name,
+      trigger: { type: triggerType, days: days ?? null },
+      actions: [{ type: actionType, text, via: actionType === "notify_coach" ? null : via, requireApproval: actionType === "ai_message" ? requireApproval : null }],
+    };
+    return guard(() =>
+      gql(`mutation C($input: WorkflowInput!) { createWorkflow(input: $input) { ${WORKFLOW_FIELDS} } }`, { input })
+    );
+  }
+);
+
+server.tool(
+  "set_workflow_enabled",
+  "Turn one of the coach's workflows on or off (confirm-gated). Turning one on needs Coach Pro or a gym plan.",
+  { workflowId: z.string().min(1), enabled: z.boolean(), ...confirmField },
+  async ({ confirm, workflowId, enabled }) => {
+    if (!confirm) return preview("set_workflow_enabled", { workflowId, enabled });
+    return guard(() =>
+      gql(`mutation E($id: ID!, $enabled: Boolean!) { setWorkflowEnabled(id: $id, enabled: $enabled) { id name enabled } }`, { id: workflowId, enabled })
+    );
+  }
+);
+
+server.tool(
+  "list_workflow_approvals",
+  "AI-drafted workflow messages waiting for the coach's approval (drafts expire after 3 days). Show the draft and client to the coach; use review_workflow_draft to send or discard.",
+  {},
+  READ_ONLY,
+  async () =>
+    guard(() => gql(`query { workflowApprovals { id workflowId clientName renderedText via creditsPaise createdAt } }`))
+);
+
+server.tool(
+  "review_workflow_draft",
+  "Approve (send, optionally with edited `text`) or discard a pending AI-drafted workflow message (confirm-gated). Sending reaches the client immediately, so only approve after the coach has seen the final text.",
+  { runId: z.string().min(1), decision: z.enum(["approve", "discard"]), text: z.string().min(1).max(1000).optional(), ...confirmField },
+  async ({ confirm, runId, decision, text }) => {
+    if (!confirm) return preview("review_workflow_draft", { runId, decision, text });
+    return decision === "approve"
+      ? guard(() =>
+          gql(`mutation A($runId: ID!, $text: String) { approveWorkflowRun(runId: $runId, text: $text) { id status renderedText } }`, { runId, text })
+        )
+      : guard(() => gql(`mutation X($runId: ID!) { rejectWorkflowRun(runId: $runId) { id status } }`, { runId }));
+  }
+);
+
 /* ═════════════════════════ Prospects (CRM) ═════════════════════════
  * A coach's pre-client pipeline — leads captured from the profile form,
  * WhatsApp, or entered by hand. Distinct from Clients: a prospect has not
@@ -2903,6 +3023,11 @@ const SERVER_INSTRUCTIONS = [
   "plans, leads (list_organization_prospects) and earnings are gym-level, not per coach. Announcements,",
   "role changes, ownership transfer and closing a gym are outward-facing or irreversible: show the",
   "coach exactly what will happen before confirm: true.",
+  "",
+  "Workflows (Coach Pro / gym): automations that message clients when something happens (missed",
+  "check-in, inactivity, renewal…). Start with list_workflow_templates; prefer a template over a custom",
+  "build. AI-drafted steps cost the coach AI credits and are held for approval: surface them with",
+  "list_workflow_approvals and only review_workflow_draft(approve) with the coach's OK on the final text.",
 ].join("\n");
 
 /** Build a fully-registered MCP server instance. */
