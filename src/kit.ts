@@ -31,6 +31,7 @@ export function preview(action: string, details: unknown): ToolResult {
 
 export const READ_ONLY = { readOnlyHint: true } as const;
 export const DESTRUCTIVE = { destructiveHint: true } as const;
+export const WRITE = { readOnlyHint: false } as const;
 
 /** Every GraphQL document the declarative helpers send — lets scripts/validate-docs.mjs check them against the schema. */
 export const REGISTERED_DOCS: { tool: string; doc: string }[] = [];
@@ -92,7 +93,7 @@ export function readTool(server: McpServer, spec: ToolSpec): void {
 }
 
 /** A confirm-gated write tool backed by one GraphQL mutation field. */
-export function writeTool(server: McpServer, spec: ToolSpec & { destructive?: boolean }): void {
+export function writeTool(server: McpServer, spec: ToolSpec & { destructive?: boolean; secrets?: string[] }): void {
   const doc = buildDoc("mutation", spec);
   REGISTERED_DOCS.push({ tool: spec.name, doc });
   const desc = `${spec.desc} (confirm-gated: previews until confirm: true)`;
@@ -100,10 +101,14 @@ export function writeTool(server: McpServer, spec: ToolSpec & { destructive?: bo
     spec.name,
     desc,
     { ...(spec.shape ?? {}), ...confirmField },
-    spec.destructive ? DESTRUCTIVE : {},
+    spec.destructive ? DESTRUCTIVE : WRITE, // never `{}` — the SDK would read it as the input shape
     async (input: Record<string, unknown>) => {
       const { confirm, ...rest } = input;
-      if (!confirm) return preview(spec.name, rest);
+      if (!confirm) {
+        const shown = { ...rest };
+        for (const k of spec.secrets ?? []) if (k in shown) shown[k] = "••••(hidden)";
+        return preview(spec.name, shown);
+      }
       return guard(() => gql(doc, pickVars(spec, rest)));
     }
   );

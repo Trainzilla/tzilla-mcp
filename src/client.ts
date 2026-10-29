@@ -129,3 +129,19 @@ export async function restGet<T>(path: string): Promise<T> {
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
   return JSON.parse(text) as T;
 }
+
+/** True when the call is serving an HTTP-transport request (per-request API key) rather than a local stdio session. */
+export function isHttpRequest(): boolean {
+  return authStore.getStore() !== undefined;
+}
+
+/** Bearer token + headers for authenticated REST calls. */
+export function authHeaders(): Record<string, string> {
+  const token = authStore.getStore() ?? accessToken;
+  return { role: "trainer", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+}
+
+/** Resolve a REST path against the API host. */
+export function restUrl(path: string): string {
+  return new URL(path, config.apiUrl).toString();
+}

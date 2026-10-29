@@ -9,7 +9,7 @@ auth and business rules stay enforced by the backend.
 > write tools**, plus a resource + a prompt. Not deployed anywhere. Runs entirely
 > on your machine against your own coach login.
 
-## What it can do today (325 tools, 1 resource, 1 prompt)
+## What it can do today (342 tools, 1 resource, 1 prompt)
 
 **Read (live data):**
 - `whoami`, `list_clients`, `get_client_profile`
@@ -43,10 +43,14 @@ npm run build
 SCHEMA=/path/to/tzilla-be/schema.graphql GRAPHQL_PKG=/path/to/node_modules/graphql node scripts/validate-docs.mjs
 ```
 
-Still **not** exposed, by design: API-key creation, Stripe/Razorpay secret-key connect, taking or
-refunding a payment, signing a client up to a paid subscription, Google sign-in, and file uploads
-(photos, PDFs, receipts — done in the apps). Chat message *history* is delivered over a live socket
-the backend doesn't expose via GraphQL, so only the room list is readable here.
+Also included: `upload_file` (local path on stdio, or base64) → S3 key for the tools that take one (health reports,
+PDF plan import, member photo, receipts, community media, branding images); API-key create/list/revoke
+(secret shown once); Stripe/Razorpay connect (secrets masked in previews); `start_google_calendar_connect`
+(returns the sign-in URL for the coach to open).
+
+Not available: taking or refunding a payment (the backend has no refund operation, and client checkout
+is completed by the client's own payment), and chat message *history* (delivered over a live socket the
+backend doesn't expose via GraphQL, so only the room list is readable).
 
 **Resource:** `tzilla://client/{clientId}/profile` — a client's profile as JSON.
 
