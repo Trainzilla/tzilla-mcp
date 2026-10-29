@@ -6,6 +6,8 @@ import { z } from "zod";
 
 import { assertConfigured } from "./config.js";
 import { gql } from "./client.js";
+import { confirmField, fail, guard, ok, preview, type ToolResult } from "./kit.js";
+import { registerExtraTools } from "./tools/index.js";
 import { pickRecentDuplicate, RecentPlan } from "./duplicate-guard.js";
 import {
   calculateMacros,
@@ -15,22 +17,6 @@ import {
   recommendedCalories,
   weightSuggestions,
 } from "./calc.js";
-
-type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
-
-function ok(data: unknown): ToolResult {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-}
-function fail(message: string): ToolResult {
-  return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
-}
-async function guard(fn: () => Promise<unknown>): Promise<ToolResult> {
-  try {
-    return ok(await fn());
-  } catch (e) {
-    return fail(e instanceof Error ? e.message : String(e));
-  }
-}
 
 async function trainerUserId(): Promise<string> {
   const data = await gql<{ trainer?: { userId?: string } }>(`query { trainer { userId } }`);
@@ -832,17 +818,6 @@ server.tool(
 );
 
 /* ───────────────────────── Write tools (confirm-gated) ───────────────────────── */
-
-const confirmField = {
-  confirm: z
-    .boolean()
-    .default(false)
-    .describe("Must be true to actually execute. If false/omitted, returns a preview only."),
-};
-
-function preview(action: string, details: unknown): ToolResult {
-  return ok({ status: "preview", action, details, note: "Re-run the tool with confirm: true to execute." });
-}
 
 // A conversation that asks "is it done?" after a create tool already ran a
 // moment ago tends to get answered by re-invoking the very tool that "did"
@@ -2983,6 +2958,8 @@ server.prompt(
   })
 );
 
+  registerExtraTools(server);
+
 } /* end registerAll */
 
 const SERVER_INSTRUCTIONS = [
@@ -3017,6 +2994,15 @@ const SERVER_INSTRUCTIONS = [
   "list_clients_needing_onboarding is the coach's 'still to set up' list. The backend auto-runs some",
   "steps and reconciles the rest (a step flips to DONE once its plan/check-in/habit/session exists), so",
   "usually you only mark_client_onboarding_step for the manual ones (e.g. the kickoff call).",
+  "",
+  "What the client actually did: get_client_diet_logs / get_client_workout_logs (one day) and the *_range",
+  "variants, get_client_daily_metrics, get_client_personal_bests. Compare with the plan before advising.",
+  "",
+  "Money and visibility: tools that reach clients or the public (create_community_post, send_*,",
+  "approve_ai_run, review_workflow_draft, confirm_direct_payment_claim, cancel_*, pause_membership,",
+  "connect_*_custom_domain) need the coach to have seen the exact outcome first. Confirming a direct-pay",
+  "claim activates the client's plan — only after the coach says the money arrived. Uploads (photos, PDFs,",
+  "receipts), Stripe/Razorpay secret keys and API keys are not available here; use the apps.",
   "",
   "Gyms (organizations): what a coach may do is set by their role and any custom role. Call",
   "get_organization_access first; tools it doesn't cover will be refused server-side. Inside a gym,",

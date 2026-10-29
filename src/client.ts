@@ -116,3 +116,32 @@ export async function gql<T>(
   }
   return finish(status, body);
 }
+
+/** GET a REST endpoint on the same API host (e.g. "/api/chat/chats"), with the same auth + refresh as gql(). */
+export async function restGet<T>(path: string): Promise<T> {
+  const url = new URL(path, config.apiUrl).toString();
+  const call = async (token: string) =>
+    fetch(url, { headers: { Accept: "application/json", role: "trainer", ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+  const requestToken = authStore.getStore();
+  let res = await call(requestToken ?? accessToken);
+  if (!requestToken && (res.status === 401 || res.status === 403) && (await refresh())) res = await call(accessToken);
+  const text = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
+  return JSON.parse(text) as T;
+}
+
+/** True when the call is serving an HTTP-transport request (per-request API key) rather than a local stdio session. */
+export function isHttpRequest(): boolean {
+  return authStore.getStore() !== undefined;
+}
+
+/** Bearer token + headers for authenticated REST calls. */
+export function authHeaders(): Record<string, string> {
+  const token = authStore.getStore() ?? accessToken;
+  return { role: "trainer", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+}
+
+/** Resolve a REST path against the API host. */
+export function restUrl(path: string): string {
+  return new URL(path, config.apiUrl).toString();
+}

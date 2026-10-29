@@ -9,7 +9,7 @@ auth and business rules stay enforced by the backend.
 > write tools**, plus a resource + a prompt. Not deployed anywhere. Runs entirely
 > on your machine against your own coach login.
 
-## What it can do today (94 tools, 1 resource, 1 prompt)
+## What it can do today (343 tools, 1 resource, 1 prompt)
 
 **Read (live data):**
 - `whoami`, `list_clients`, `get_client_profile`
@@ -28,8 +28,30 @@ with `confirm: true`, so nothing changes by accident:
 - `create_checkin` (with questions), `schedule_session`
 - `create_workout_plan`, `create_diet_plan`
 
-Still **not** exposed: deletes, payment execution/refunds, messaging, permission
-changes — by design.
+**Coverage added Oct 2026** (`src/tools/*`, each tool backed by one GraphQL operation and checked
+against the backend schema with `scripts/validate-docs.mjs`):
+- *Client tracking* — diet/workout logs, daily metrics, personal bests, exercise history, progress, health reports, intake forms, no-app (managed) clients + private portal links, contact details; coach-side logging.
+- *AI coaching* — review queue (approve/reject/requeue), trigger/offer, engagement, per-client preferences, AI-plans and self-cancel switches.
+- *Check-ins & inbox* — respond, logs, recurring schedules, clear overdue; notifications; chat room list.
+- *Business* — plans (create/prices/listing/active/session rules/delete), pause/cancel membership, desk payments, direct-pay claim confirm/reject, payments, invoices + settings, share links, Coach Pro pricing/checkout link, referral program, gym seat billing.
+- *Community, gym, workflows, catalog, profile* — community posts/comments, gym kiosks/face/check-ins/standing bookings/imports/staff/domain, workflow edit/delete + gym-wide workflows, PDF plan import, food/recipe/exercise catalog, branding/custom domain/global payout/localization, Google Calendar status, video calls.
+
+Validate documents against the backend schema after changing a tool:
+
+```bash
+npm run build
+SCHEMA=/path/to/tzilla-be/schema.graphql GRAPHQL_PKG=/path/to/node_modules/graphql node scripts/validate-docs.mjs
+```
+
+Also included: `upload_file` (local path on stdio, or base64) → S3 key for the tools that take one (health reports,
+PDF plan import, member photo, receipts, community media, branding images); API-key create/list/revoke
+(secret shown once); Stripe/Razorpay connect (secrets masked in previews); `start_google_calendar_connect`
+(returns the sign-in URL for the coach to open).
+
+Chat: `get_client_chat_messages` reads a client's DM history (needs the `clientChatMessages` backend query, tzilla-be#493).
+
+Not available: taking or refunding a payment — the backend has no coach-facing refund operation, and client
+checkout is completed by the client's own payment.
 
 **Resource:** `tzilla://client/{clientId}/profile` — a client's profile as JSON.
 
