@@ -9,7 +9,7 @@ auth and business rules stay enforced by the backend.
 > write tools**, plus a resource + a prompt. Not deployed anywhere. Runs entirely
 > on your machine against your own coach login.
 
-## What it can do today (94 tools, 1 resource, 1 prompt)
+## What it can do today (325 tools, 1 resource, 1 prompt)
 
 **Read (live data):**
 - `whoami`, `list_clients`, `get_client_profile`
@@ -28,8 +28,25 @@ with `confirm: true`, so nothing changes by accident:
 - `create_checkin` (with questions), `schedule_session`
 - `create_workout_plan`, `create_diet_plan`
 
-Still **not** exposed: deletes, payment execution/refunds, messaging, permission
-changes — by design.
+**Coverage added Oct 2026** (`src/tools/*`, each tool backed by one GraphQL operation and checked
+against the backend schema with `scripts/validate-docs.mjs`):
+- *Client tracking* — diet/workout logs, daily metrics, personal bests, exercise history, progress, health reports, intake forms, no-app (managed) clients + private portal links, contact details; coach-side logging.
+- *AI coaching* — review queue (approve/reject/requeue), trigger/offer, engagement, per-client preferences, AI-plans and self-cancel switches.
+- *Check-ins & inbox* — respond, logs, recurring schedules, clear overdue; notifications; chat room list.
+- *Business* — plans (create/prices/listing/active/session rules/delete), pause/cancel membership, desk payments, direct-pay claim confirm/reject, payments, invoices + settings, share links, Coach Pro pricing/checkout link, referral program, gym seat billing.
+- *Community, gym, workflows, catalog, profile* — community posts/comments, gym kiosks/face/check-ins/standing bookings/imports/staff/domain, workflow edit/delete + gym-wide workflows, PDF plan import, food/recipe/exercise catalog, branding/custom domain/global payout/localization, Google Calendar status, video calls.
+
+Validate documents against the backend schema after changing a tool:
+
+```bash
+npm run build
+SCHEMA=/path/to/tzilla-be/schema.graphql GRAPHQL_PKG=/path/to/node_modules/graphql node scripts/validate-docs.mjs
+```
+
+Still **not** exposed, by design: API-key creation, Stripe/Razorpay secret-key connect, taking or
+refunding a payment, signing a client up to a paid subscription, Google sign-in, and file uploads
+(photos, PDFs, receipts — done in the apps). Chat message *history* is delivered over a live socket
+the backend doesn't expose via GraphQL, so only the room list is readable here.
 
 **Resource:** `tzilla://client/{clientId}/profile` — a client's profile as JSON.
 
