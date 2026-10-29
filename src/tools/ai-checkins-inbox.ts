@@ -225,6 +225,17 @@ export function registerAiCheckinsInboxTools(server: McpServer): void {
     "The coach's recent chat conversations (up to 50, newest first) with participants and last-message time. Read a conversation with get_client_chat_messages; reply with send_message_to_client.",
     {},
     READ_ONLY,
-    async () => guard(() => restGet("/api/chat/chats"))
+    async () =>
+      guard(async () => {
+        const rooms = await restGet<any[]>("/api/chat/chats");
+        // The REST payload embeds each participant's full user document; keep only what a coach needs to pick a conversation.
+        return (Array.isArray(rooms) ? rooms : []).map((r) => ({
+          roomId: r._id,
+          participants: (r.participants ?? []).map((p: any) => ({ userId: p.userId, role: p.role, name: p.user?.name ?? null })),
+          lastMessageAt: r.lastMessageAt ?? null,
+          lastMessageText: typeof r.lastMessageText === "string" ? r.lastMessageText.slice(0, 160) : null,
+          unread: r.unread ?? {},
+        }));
+      })
   );
 }
