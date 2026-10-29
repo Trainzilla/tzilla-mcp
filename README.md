@@ -9,7 +9,7 @@ auth and business rules stay enforced by the backend.
 > write tools**, plus a resource + a prompt. Not deployed anywhere. Runs entirely
 > on your machine against your own coach login.
 
-## What it can do today (342 tools, 1 resource, 1 prompt)
+## What it can do today (343 tools, 1 resource, 1 prompt)
 
 **Read (live data):**
 - `whoami`, `list_clients`, `get_client_profile`
@@ -48,9 +48,10 @@ PDF plan import, member photo, receipts, community media, branding images); API-
 (secret shown once); Stripe/Razorpay connect (secrets masked in previews); `start_google_calendar_connect`
 (returns the sign-in URL for the coach to open).
 
-Not available: taking or refunding a payment (the backend has no refund operation, and client checkout
-is completed by the client's own payment), and chat message *history* (delivered over a live socket the
-backend doesn't expose via GraphQL, so only the room list is readable).
+Chat: `get_client_chat_messages` reads a client's DM history (needs the `clientChatMessages` backend query, tzilla-be#493).
+
+Not available: taking or refunding a payment — the backend has no coach-facing refund operation, and client
+checkout is completed by the client's own payment.
 
 **Resource:** `tzilla://client/{clientId}/profile` — a client's profile as JSON.
 

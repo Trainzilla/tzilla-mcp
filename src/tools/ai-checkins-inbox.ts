@@ -212,9 +212,17 @@ export function registerAiCheckinsInboxTools(server: McpServer): void {
     desc: "Mark every notification read.",
     field: "markAllRead",
   });
+  readTool(server, {
+    name: "get_client_chat_messages",
+    desc: "Chat history with one of the coach's own clients, oldest first (page back with `before`). Shows what the client replied; use send_message_to_client to answer.",
+    field: "clientChatMessages",
+    args: "clientId: ID!, before: Date, limit: Int",
+    select: "id roomId from fromRole type text mediaUrl createdAt readByClient",
+    shape: { clientId, before: z.string().optional().describe("ISO time; return messages older than this"), limit: z.number().int().min(1).max(100).default(30) },
+  });
   server.tool(
     "list_chat_rooms",
-    "The coach's recent chat conversations (up to 50, newest first) with participants and last-message time. Message text is delivered over the live chat socket and is not available here; use send_message_to_client to reply.",
+    "The coach's recent chat conversations (up to 50, newest first) with participants and last-message time. Read a conversation with get_client_chat_messages; reply with send_message_to_client.",
     {},
     READ_ONLY,
     async () => guard(() => restGet("/api/chat/chats"))
