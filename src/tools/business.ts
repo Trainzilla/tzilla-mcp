@@ -207,7 +207,7 @@ export function registerBusinessTools(server: McpServer): void {
   readTool(server, {
     name: "list_client_payments",
     desc: "Payments one client made (to this coach), newest first.",
-    field: "clientPayments",
+    field: "paymentsForClient",
     args: "clientId: ID!, pagination: PaginationInput",
     select: PAYMENT,
     shape: { clientId, pagination: z.object({ pageNumber: z.number().int().min(1), pageSize: z.number().int().min(1).max(100) }).optional() },
