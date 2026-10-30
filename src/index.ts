@@ -1348,7 +1348,8 @@ server.tool(
  * and wait for the coach's approval by default. */
 
 const WORKFLOW_FIELDS = `id name templateKey enabled runCount lastRunAt
-  trigger { type days } actions { type text via requireApproval }`;
+  trigger { type days } actions { type text via requireApproval }
+  sequence { weekday planIds messages }`;
 
 server.tool(
   "list_workflow_templates",

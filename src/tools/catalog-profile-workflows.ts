@@ -8,7 +8,15 @@ const orgId = id.describe("Gym id (from list_my_organizations)");
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Date as YYYY-MM-DD");
 
 const WORKFLOW = `id name templateKey enabled trigger { type days } actions { type text via requireApproval }
+  sequence { weekday planIds messages }
   excludedClientIds runCount lastRunAt organizationId createdAt`;
+const sequenceInput = z
+  .object({
+    weekday: z.number().int().min(0).max(6).describe("0=Sunday..6=Saturday, read in each client's own time zone"),
+    planIds: z.array(z.string().min(1)).optional().describe("Only clients on these plans; omit for every client"),
+    messages: z.array(z.string().min(1).max(1000)).min(1).max(52).describe("Message 1 goes out on the first weekday after a client starts, message 2 a week later, and so on"),
+  })
+  .optional();
 const workflowInput = z.object({
   name: z.string().min(1).max(80),
   trigger: z.object({ type: z.string().min(1), days: z.number().int().min(1).max(365).optional() }),
@@ -22,6 +30,7 @@ const workflowInput = z.object({
       })
     )
     .min(1),
+  sequence: sequenceInput.describe('Required when trigger.type is "weekly_sequence" (a weekly message series); actions then only carries the delivery channel'),
   enabled: z.boolean().optional(),
   excludedClientIds: z.array(id).optional().describe("Clients this workflow must skip"),
 });
@@ -30,11 +39,32 @@ export function registerCatalogProfileWorkflowTools(server: McpServer): void {
   /* ── Workflows: edit/delete + gym-wide ── */
   writeTool(server, {
     name: "update_workflow",
-    desc: "Edit one of the coach's workflows (name, trigger, actions, excluded clients). Replaces the whole definition — fetch it with list_workflows first and change only what's needed. Safety limits stay: 8am–9pm client-local, max 2 workflow messages per client per day.",
+    desc: "Edit one of the coach's workflows (name, trigger, actions, weekly-series sequence, excluded clients). Replaces the whole definition — include the existing `sequence` when editing a weekly message series or it is dropped — fetch it with list_workflows first and change only what's needed. Safety limits stay: 8am–9pm client-local, max 2 workflow messages per client per day.",
     field: "updateWorkflow",
     args: "id: ID!, input: WorkflowInput!",
     select: WORKFLOW,
     shape: { id, input: workflowInput },
+  });
+  writeTool(server, {
+    name: "create_weekly_message_series",
+    desc: "Create a weekly message series: one message per week sent automatically to each client, starting on the first `weekday` after they start (their plan start, or when they joined), optionally limited to clients on certain plans. Coach Pro or a gym plan is required. Same safety limits as other workflows (8am–9pm client-local, max 2 a day, clients can opt out, never sent to clients without the app). Up to 52 messages. To edit later use update_workflow and send the whole definition including `sequence`.",
+    field: "createWorkflow",
+    args: "input: WorkflowInput!",
+    select: WORKFLOW,
+    shape: {
+      input: z.object({
+        name: z.string().min(1).max(80),
+        trigger: z.object({ type: z.literal("weekly_sequence") }),
+        actions: z.array(z.object({ type: z.literal("send_message"), text: z.string().min(1).max(1000).describe("Placeholder text; the series messages are in `sequence`"), via: z.enum(["chat", "push", "email"]).optional() })).min(1),
+        sequence: z.object({
+          weekday: z.number().int().min(0).max(6),
+          planIds: z.array(z.string().min(1)).optional(),
+          messages: z.array(z.string().min(1).max(1000)).min(1).max(52),
+        }),
+        enabled: z.boolean().optional(),
+        excludedClientIds: z.array(id).optional(),
+      }),
+    },
   });
   writeTool(server, {
     name: "delete_workflow",

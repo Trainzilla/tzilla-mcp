@@ -155,15 +155,15 @@ export function registerAiCheckinsInboxTools(server: McpServer): void {
     desc: "The coach's recurring check-in schedules (weekday + time + questions per client).",
     field: "checkInSchedulesForTrainer",
     args: "trainerId: ID!",
-    select: "_id clientId dayOfWeek timeOfDay isActive client { _id name } questions { id type label required }",
+    select: "_id clientId dayOfWeek timeOfDay isActive intervalWeeks anchorDate timeZone client { _id name } questions { id type label required }",
     resolve: async () => ({ trainerId: await trainerId() }),
   });
   writeTool(server, {
     name: "upsert_checkin_schedule",
-    desc: "Create or edit a recurring weekly check-in for a client (dayOfWeek 0=Sunday..6=Saturday). Pass _id to edit.",
+    desc: "Create or edit a recurring check-in for a client (dayOfWeek 0=Sunday..6=Saturday). intervalWeeks 1 = weekly (default), 2 = every 2 weeks (bi-weekly), up to 4; the cycle runs in timeZone (IANA, defaults to the coach's account zone). Pass _id to edit.",
     field: "upsertCheckInSchedule",
     args: "input: UpsertCheckInScheduleInput!",
-    select: "_id clientId dayOfWeek timeOfDay isActive",
+    select: "_id clientId dayOfWeek timeOfDay isActive intervalWeeks anchorDate timeZone",
     shape: {
       input: z.object({
         _id: z.string().optional(),
@@ -171,6 +171,8 @@ export function registerAiCheckinsInboxTools(server: McpServer): void {
         dayOfWeek: z.number().int().min(0).max(6),
         timeOfDay: z.string().regex(/^\d{2}:\d{2}$/).describe("HH:mm"),
         isActive: z.boolean().optional(),
+        intervalWeeks: z.number().int().min(1).max(4).optional().describe("1 weekly (default), 2 bi-weekly, 3 or 4"),
+        timeZone: z.string().optional().describe("IANA zone the time is read in, e.g. America/New_York"),
         questions: z
           .array(z.object({ id: z.string().optional(), type: z.enum(["TEXT", "NUMBER", "SCALE", "PHOTO"]), label: z.string().min(1), required: z.boolean().optional() }))
           .optional(),
