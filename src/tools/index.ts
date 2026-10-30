@@ -5,6 +5,7 @@ import { registerCatalogProfileWorkflowTools } from "./catalog-profile-workflows
 import { registerSecretsUploadTools } from "./secrets-uploads.js";
 import { registerBusinessTools } from "./business.js";
 import { registerAiCheckinsInboxTools } from "./ai-checkins-inbox.js";
+import { registerLibraryUnitTools } from "./library-units.js";
 
 /** Tool groups added after the original index.ts — one module per domain. */
 export function registerExtraTools(server: McpServer): void {
@@ -14,4 +15,5 @@ export function registerExtraTools(server: McpServer): void {
   registerSecretsUploadTools(server);
   registerCatalogProfileWorkflowTools(server);
   registerCommunityGymTools(server);
+  registerLibraryUnitTools(server);
 }
