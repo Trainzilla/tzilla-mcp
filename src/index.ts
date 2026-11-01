@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { assertConfigured } from "./config.js";
 import { gql } from "./client.js";
-import { confirmField, fail, guard, ok, preview, type ToolResult } from "./kit.js";
+import { confirmField, fail, groupDoc, groupOptionsShape, guard, ok, preview, runGroupAssign, type ToolResult } from "./kit.js";
 import { registerExtraTools } from "./tools/index.js";
 import { pickRecentDuplicate, RecentPlan } from "./duplicate-guard.js";
 import {
@@ -1039,6 +1039,55 @@ server.tool(
       );
     });
   }
+);
+
+groupDoc("assign_workout_to_groups", "assignWorkoutToGroups", "$input: GroupWorkoutPlanInput!");
+groupDoc("assign_diet_to_groups", "assignDietToGroups", "$input: GroupDietPlanInput!");
+
+server.tool(
+  "assign_workout_to_groups",
+  "Give the same workout plan to every client in one or more groups (confirm-gated: without confirm it previews who would get it, writing nothing). Each client gets their own copy, so it can be edited per person afterwards. Members who already have a plan with this title over overlapping dates are skipped. Same exercises format as create_workout_plan (call get_training_split first and use search_exercises ids). Undo with undo_group_assignment.",
+  {
+    title: z.string().min(1),
+    description: z.string().optional(),
+    startDate: z.string().min(1).describe("YYYY-MM-DD"),
+    endDate: z.string().optional(),
+    exercises: z.array(z.record(z.unknown())).min(1),
+    days: z.array(z.string()).optional(),
+    ...groupOptionsShape,
+    ...confirmField,
+  },
+  async ({ confirm, groupIds, excludeClientIds, allowDuplicates, exercises, ...plan }) =>
+    runGroupAssign(
+      "assign_workout_to_groups",
+      "assignWorkoutToGroups",
+      "$input: GroupWorkoutPlanInput!",
+      { input: { ...plan, exercises: normalizeExercises(exercises) } },
+      { groupIds, excludeClientIds, allowDuplicates },
+      Boolean(confirm),
+    )
+);
+
+server.tool(
+  "assign_diet_to_groups",
+  "Give the same nutrition plan to every client in one or more groups (confirm-gated: without confirm it previews who would get it, writing nothing). Each client gets their own copy. Same meals format as create_diet_plan, including itemised ingredients on every meal. Note every member gets the same quantities, so for clients with very different calorie needs create individual plans instead. Undo with undo_group_assignment.",
+  {
+    title: z.string().min(1),
+    startDate: z.string().min(1).describe("YYYY-MM-DD"),
+    endDate: z.string().optional(),
+    meals: z.array(dietMealSchema).min(1).superRefine(requireItemisedMeals),
+    ...groupOptionsShape,
+    ...confirmField,
+  },
+  async ({ confirm, groupIds, excludeClientIds, allowDuplicates, meals, ...plan }) =>
+    runGroupAssign(
+      "assign_diet_to_groups",
+      "assignDietToGroups",
+      "$input: GroupDietPlanInput!",
+      { input: { ...plan, meals: normalizeDietMeals(meals as Record<string, unknown>[]) } },
+      { groupIds, excludeClientIds, allowDuplicates },
+      Boolean(confirm),
+    )
 );
 
 server.tool(
@@ -3010,6 +3059,14 @@ const SERVER_INSTRUCTIONS = [
   "plans, leads (list_organization_prospects) and earnings are gym-level, not per coach. Announcements,",
   "role changes, ownership transfer and closing a gym are outward-facing or irreversible: show the",
   "coach exactly what will happen before confirm: true.",
+  "",
+  "Client groups (Coach Pro / gym): a coach's named lists of clients (list_client_groups). Anything the coach",
+  "can do for one client they can do for a whole group: assign_workout_to_groups, assign_diet_to_groups,",
+  "assign_habit_to_groups, message_groups, schedule_checkin_for_groups, book_session_for_groups. Each client",
+  "gets their own normal plan/habit/session. Every one previews first and lists, per client, who would get it",
+  "and who would be skipped and why: show that list to the coach, then confirm: true. Members who already",
+  "have the same thing are skipped; undo_group_assignment (id from list_group_assignments) takes it back,",
+  "except a sent message. One action covers up to 40 clients. get_group_overview shows who is quiet.",
   "",
   "Workflows (Coach Pro / gym): automations that message clients when something happens (missed",
   "check-in, inactivity, renewal…). Start with list_workflow_templates; prefer a template over a custom",
