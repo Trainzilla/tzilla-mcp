@@ -9,7 +9,7 @@ auth and business rules stay enforced by the backend.
 > write tools**, plus a resource + a prompt. Not deployed anywhere. Runs entirely
 > on your machine against your own coach login.
 
-## What it can do today (343 tools, 1 resource, 1 prompt)
+## What it can do today (360 tools, 1 resource, 1 prompt)
 
 **Read (live data):**
 - `whoami`, `list_clients`, `get_client_profile`
@@ -35,6 +35,7 @@ against the backend schema with `scripts/validate-docs.mjs`):
 - *Check-ins & inbox* — respond, logs, recurring schedules, clear overdue; notifications; chat room list.
 - *Business* — plans (create/prices/listing/active/session rules/delete), pause/cancel membership, desk payments, direct-pay claim confirm/reject, payments, invoices + settings, share links, Coach Pro pricing/checkout link, referral program, gym seat billing.
 - *Community, gym, workflows, catalog, profile* — community posts/comments, gym kiosks/face/check-ins/standing bookings/imports/staff/domain, workflow edit/delete + gym-wide workflows, PDF plan import, food/recipe/exercise catalog, branding/custom domain/global payout/localization, Google Calendar status, video calls.
+- *Client groups (Coach Pro / gym), Nov 2026* — `list_client_groups`, `get_client_group`, `list_groups_for_client`, create/update/delete group, `add_group_members`/`remove_group_members`, `get_group_overview`, `list_group_assignments`, and the fan-outs `assign_workout_to_groups`, `assign_diet_to_groups`, `assign_habit_to_groups`, `message_groups`, `schedule_checkin_for_groups`, `book_session_for_groups`, `undo_group_assignment`. The fan-outs preview server-side without `confirm` (who would get it, who is skipped and why) and are idempotent for 10 minutes. `scripts/mcp-groups-e2e.mjs` drives them against a local backend (`TZ_API_URL=http://127.0.0.1:4100/graphql`).
 
 Validate documents against the backend schema after changing a tool:
 

@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { gql } from "./client.js";
 
 export type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
@@ -125,4 +126,77 @@ export async function trainerId(): Promise<string> {
   const id = data.trainer?.userId;
   if (!id) throw new Error("Could not resolve trainer id for the authenticated user.");
   return id;
+}
+
+/* ───────────────────────── Client groups: fan-out tools ───────────────────────── */
+
+/** What every assign / message / check-in / session mutation returns, member by member. */
+export const GROUP_OUTCOME = `assignmentId preview createdCount skippedCount failedCount
+  rows { clientId name itemId status reason }`;
+
+export const groupOptionsShape = {
+  groupIds: z.array(z.string().min(1)).min(1).max(10).describe("Group ids from list_client_groups"),
+  excludeClientIds: z.array(z.string().min(1)).optional().describe("Members to leave out this time (client User _ids)"),
+  allowDuplicates: z.boolean().optional().describe("Also give it to a member who already has the same thing over the same dates (default: skip them)"),
+};
+
+/**
+ * Run (or preview) one group fan-out. Without confirm the SERVER previews it, so the coach sees the real list of who
+ * would get it and who would be skipped (and why); nothing is written. With confirm it runs, under an idempotency key
+ * derived from the arguments and the current 10-minute window, so asking twice in a row cannot assign twice.
+ */
+/** The mutation document for a group fan-out tool; registered so scripts/validate-docs.mjs checks it against the schema. */
+export function groupDoc(tool: string, field: string, argsSig: string): string {
+  const call = argsSig
+    .split(",")
+    .map((a) => a.trim().split(":")[0].replace("$", ""))
+    .map((n) => `${n}: $${n}`)
+    .join(", ");
+  const doc = `mutation Tool(${argsSig}, $options: GroupAssignOptions!) { ${field}(${call}, options: $options) { ${GROUP_OUTCOME} } }`;
+  if (!REGISTERED_DOCS.some((d) => d.tool === tool)) REGISTERED_DOCS.push({ tool, doc });
+  return doc;
+}
+
+export async function runGroupAssign(
+  tool: string,
+  field: string,
+  argsSig: string,
+  vars: Record<string, unknown>,
+  options: { groupIds: string[]; excludeClientIds?: string[]; allowDuplicates?: boolean },
+  confirm: boolean,
+): Promise<ToolResult> {
+  const doc = groupDoc(tool, field, argsSig);
+  return guard(async () => {
+    const key = confirm
+      ? createHash("sha256").update(JSON.stringify([tool, vars, options, Math.floor(Date.now() / 600_000)])).digest("hex").slice(0, 40)
+      : undefined;
+    const data = await gql<Record<string, unknown>>(doc, {
+      ...vars,
+      options: { ...options, preview: !confirm, ...(key ? { requestKey: key } : {}) },
+    });
+    const outcome = data[field];
+    return confirm
+      ? outcome
+      : { status: "preview", action: tool, outcome, note: "Nothing was written. Re-run with confirm: true to do it for these clients." };
+  });
+}
+
+/** Register a confirm-gated group fan-out tool whose arguments are passed straight through. */
+export function groupAssignTool(
+  server: McpServer,
+  spec: { name: string; desc: string; field: string; sig: string; shape: Shape; destructive?: boolean },
+): void {
+  groupDoc(spec.name, spec.field, spec.sig);
+  server.tool(
+    spec.name,
+    `${spec.desc} (confirm-gated: without confirm it previews who would get it, writing nothing)`,
+    { ...spec.shape, ...groupOptionsShape, ...confirmField },
+    WRITE,
+    async (input: Record<string, unknown>) => {
+      const { confirm, groupIds, excludeClientIds, allowDuplicates, ...vars } = input as Record<string, unknown> & {
+        confirm: boolean; groupIds: string[]; excludeClientIds?: string[]; allowDuplicates?: boolean;
+      };
+      return runGroupAssign(spec.name, spec.field, spec.sig, vars, { groupIds, excludeClientIds, allowDuplicates }, Boolean(confirm));
+    }
+  );
 }
