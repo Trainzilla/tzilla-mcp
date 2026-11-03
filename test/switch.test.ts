@@ -32,3 +32,12 @@ test("the switch prompt and the shipped skill carry the same instructions", asyn
   assert.equal(md.split("-->\n")[1].trim(), SWITCH_INSTRUCTIONS);
   assert.ok(SWITCH_INSTRUCTIONS.includes("bulk_invite_clients"));
 });
+
+test("the instructions cover platforms with no export (paste, screenshots, other sources, typing) and never guess emails", async () => {
+  const { SWITCH_INSTRUCTIONS } = await import("../src/tools/switch.js");
+  assert.match(SWITCH_INSTRUCTIONS, /When there is no export/);
+  for (const word of ["Copy and paste", "Screenshots", "payment tool", "Type or dictate", "do not guess or construct emails", "Never scrape", "has no browser", "signs in themselves", "Read-only"]) {
+    assert.ok(SWITCH_INSTRUCTIONS.includes(word), word);
+  }
+  assert.match(SWITCH_INSTRUCTIONS, /never see, ask for or type a password/);
+});
