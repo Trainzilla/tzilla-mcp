@@ -10,13 +10,13 @@ const clientId = id.describe("Client's User _id (from list_clients)");
 const orgId = id.describe("Gym id (from list_my_organizations)");
 const s3Key = z.string().min(1).describe("Key returned by upload_file");
 
-const TYPES: Record<string, string> = {
+export const TYPES: Record<string, string> = {
   ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".heic": "image/heic",
   ".gif": "image/gif", ".mp4": "video/mp4", ".mov": "video/quicktime", ".pdf": "application/pdf",
 };
 
 /** Presign → PUT. Returns the S3 key other tools take. */
-async function uploadBytes(bytes: Buffer, contentType: string): Promise<{ key: string; bytes: number; contentType: string }> {
+export async function uploadBytes(bytes: Buffer, contentType: string): Promise<{ key: string; bytes: number; contentType: string }> {
   const sign = await restGet<{ url: string; key: string; maxSize?: number }>(`/api/aws/presign?type=${encodeURIComponent(contentType)}`);
   if (sign.maxSize && bytes.length > sign.maxSize) {
     throw new Error(`File is ${bytes.length} bytes; the limit for ${contentType} is ${sign.maxSize}.`);
