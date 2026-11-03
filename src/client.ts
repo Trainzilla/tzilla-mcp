@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { config } from "./config.js";
+import { noteGqlAttempt } from "./observability.js";
 
 /**
  * Per-request auth token (used by the HTTP transport, where each MCP request
@@ -40,28 +41,89 @@ const REFRESH_MUTATION = /* GraphQL */ `
   }
 `;
 
+const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_MUTATION_TIMEOUT_MS = 60_000;
+const DEFAULT_RETRY_DELAY_MS = 400;
+const MAX_RETRY_AFTER_MS = 3_000;
+
+/** Read per call (not at import) so hosts and tests can tune them without a restart. */
+function envMs(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+export function isMutation(query: string): boolean {
+  return /^(\s|#[^\n]*\n)*mutation\b/i.test(query);
+}
+
+function retryDelayMs(res?: Response): number {
+  const header = Number(res?.headers.get("retry-after"));
+  const base = Number.isFinite(header) && header > 0 ? header * 1000 : envMs("TZ_MCP_RETRY_DELAY_MS", DEFAULT_RETRY_DELAY_MS);
+  return Math.min(base, MAX_RETRY_AFTER_MS) + (base > 0 ? Math.floor(Math.random() * 150) : 0);
+}
+
+const sleep = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
+
+/**
+ * POST one GraphQL document with a timeout and at most ONE retry.
+ * - 429 is retried for everything: the request was rejected before it ran, so it is safe even for a mutation.
+ * - Timeouts, network errors and 502/503/504 are retried for queries only. A mutation may already have been
+ *   applied, so it fails with an explicit "check before retrying" message instead of risking a double write.
+ */
 async function rawPost<T>(
   query: string,
   variables: Record<string, unknown> | undefined,
   token: string
 ): Promise<{ status: number; body: GraphQLResponse<T> }> {
-  const res = await fetch(config.apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      role: "trainer",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables: variables ?? {} }),
-  });
-  let body: GraphQLResponse<T>;
-  try {
-    body = (await res.json()) as GraphQLResponse<T>;
-  } catch {
-    body = { errors: [{ message: `Non-JSON response (HTTP ${res.status})` }] };
+  const mutation = isMutation(query);
+  const timeoutMs = mutation
+    ? envMs("TZ_MCP_MUTATION_TIMEOUT_MS", DEFAULT_MUTATION_TIMEOUT_MS)
+    : envMs("TZ_MCP_REQUEST_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
+
+  for (let attempt = 0; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(config.apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          role: "trainer",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ query, variables: variables ?? {} }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (e) {
+      noteGqlAttempt({ retry: attempt > 0 });
+      const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+      if (!mutation && attempt === 0) {
+        await sleep(retryDelayMs());
+        continue;
+      }
+      const why = timedOut
+        ? `The Trainzilla API did not respond within ${Math.round(timeoutMs / 1000)}s`
+        : `Could not reach the Trainzilla API (${e instanceof Error ? e.message : String(e)})`;
+      throw new Error(
+        mutation ? `${why}. The change may or may not have been saved - check before retrying.` : `${why}. Try again shortly.`
+      );
+    }
+
+    noteGqlAttempt({ retry: attempt > 0, status: res.status });
+    const retryable = res.status === 429 || (!mutation && [502, 503, 504].includes(res.status));
+    if (retryable && attempt === 0) {
+      await sleep(retryDelayMs(res));
+      continue;
+    }
+
+    let body: GraphQLResponse<T>;
+    try {
+      body = (await res.json()) as GraphQLResponse<T>;
+    } catch {
+      body = { errors: [{ message: `Non-JSON response (HTTP ${res.status})` }] };
+    }
+    return { status: res.status, body };
   }
-  return { status: res.status, body };
 }
 
 function isAuthError(status: number, body: GraphQLResponse<unknown>): boolean {
@@ -93,6 +155,7 @@ function finish<T>(status: number, body: GraphQLResponse<T>): T {
     throw new Error(body.errors.map((e) => e.message).join("; "));
   }
   if (body.data === undefined) {
+    if (status === 429) throw new Error("Rate limited by the Trainzilla API (HTTP 429). Wait a few seconds and retry.");
     throw new Error(`Empty GraphQL response (HTTP ${status})`);
   }
   return body.data;
