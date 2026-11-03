@@ -28,6 +28,8 @@ with `confirm: true`, so nothing changes by accident:
 - `create_checkin` (with questions), `schedule_session`
 - `create_workout_plan`, `create_diet_plan`
 
+**Switching from another platform (Nov 2026):** `bulk_invite_clients` (up to 200 clients with name, phone and a private note that lands in the coach's client notes when they connect), the `switch_to_trainzilla` prompt, and the format-agnostic skill in `skills/switch-to-trainzilla/` (a coach hands Claude any export, PDFs or a spreadsheet; Claude maps it, previews, then sends). No vendor presets: nothing here assumes a competitor's export layout.
+
 **Coverage added Oct 2026** (`src/tools/*`, each tool backed by one GraphQL operation and checked
 against the backend schema with `scripts/validate-docs.mjs`):
 - *Client tracking* — diet/workout logs, daily metrics, personal bests, exercise history, progress, health reports, intake forms, no-app (managed) clients + private portal links, contact details; coach-side logging.
