@@ -315,6 +315,78 @@ export function registerCatalogProfileWorkflowTools(server: McpServer): void {
     select: "id name calories useCount lastUsedAt macros { protein carbs fat }",
     shape: { clientId },
   });
+  const mealItem = z.object({
+    name: z.string().min(1).max(120).describe("One food, e.g. Greek yogurt"),
+    quantity: z.string().max(80).optional().describe("Free text, e.g. 170 g or 1 cup"),
+    brand: z.string().max(80).optional(),
+    calories: z.number().min(0),
+    macros: z.object({
+      protein: z.number().min(0).describe("grams"),
+      carbs: z.number().min(0).describe("grams"),
+      fat: z.number().min(0).describe("grams"),
+    }),
+  });
+  const MEAL_SELECT = "id clientId name calories useCount lastUsedAt items { name quantity calories macros { protein carbs fat } } macros { protein carbs fat }";
+  writeTool(server, {
+    name: "create_client_saved_meal",
+    desc: "Save a meal (a named group of foods, ingredient-itemised) to a client's My meals so they can re-log it in one tap. Totals are computed from the foods. Max 100 meals per client, 40 foods each.",
+    field: "createSavedMeal",
+    args: "input: CreateSavedMealInput!",
+    select: MEAL_SELECT,
+    shape: { input: z.object({ clientId, name: z.string().min(1).max(80), items: z.array(mealItem).min(1).max(40) }) },
+  });
+  writeTool(server, {
+    name: "update_client_saved_meal",
+    desc: "Rename a client's saved meal and/or replace its foods (the foods list replaces the old one: get it with list_client_saved_meals first). Totals are recomputed.",
+    field: "updateSavedMeal",
+    args: "id: ID!, input: UpdateSavedMealInput!",
+    select: MEAL_SELECT,
+    shape: { id, input: z.object({ name: z.string().min(1).max(80), items: z.array(mealItem).min(1).max(40) }) },
+  });
+  writeTool(server, {
+    name: "delete_client_saved_meal",
+    desc: "Delete one of a client's saved meals. Past diary entries logged from it are not affected.",
+    field: "deleteSavedMeal",
+    args: "id: ID!",
+    shape: { id },
+    destructive: true,
+  });
+
+  /* ── Per-client nutrition targets (no meal plan needed) ── */
+  const TARGET_SELECT = "clientId calories proteinG carbsG fatG preset caloriesFromGrams updatedAt";
+  readTool(server, {
+    name: "get_client_macro_targets",
+    desc: "A client's daily calorie and protein/carbs/fat gram targets set by the coach (independent of any plan). Returns null when none are set; the client app then shows an automatic estimate.",
+    field: "clientNutritionTargets",
+    args: "clientId: ID!",
+    select: TARGET_SELECT,
+    shape: { clientId },
+  });
+  writeTool(server, {
+    name: "set_client_macro_targets",
+    desc: "Set a client's daily targets: calories and/or grams of protein, carbs and fat. No meal plan needed. Replaces the previous targets (send all numbers you want kept). Optional preset BALANCED / HIGH_PROTEIN / LOW_CARB fills any gram value you leave out from the calories. The client app shows these as the goals.",
+    field: "setClientNutritionTargets",
+    args: "clientId: ID!, input: ClientNutritionTargetsInput!",
+    select: TARGET_SELECT,
+    shape: {
+      clientId,
+      input: z.object({
+        calories: z.number().int().min(0).max(20000).optional(),
+        proteinG: z.number().int().min(0).max(2000).optional(),
+        carbsG: z.number().int().min(0).max(2000).optional(),
+        fatG: z.number().int().min(0).max(2000).optional(),
+        preset: z.enum(["BALANCED", "HIGH_PROTEIN", "LOW_CARB"]).optional().describe("Needs calories; fills missing grams"),
+      }),
+    },
+  });
+  writeTool(server, {
+    name: "clear_client_macro_targets",
+    desc: "Remove a client's coach-set targets so the app falls back to its automatic estimate.",
+    field: "clearClientNutritionTargets",
+    args: "clientId: ID!",
+    shape: { clientId },
+    destructive: true,
+  });
 
   /* ── Coach profile: branding, domain, payout, calendar, video ── */
   readTool(server, {

@@ -33,3 +33,15 @@ test("write tools say they are confirm-gated", () => {
     assert.match(tools[name].description ?? "", /confirm-gated/, name);
   }
 });
+
+test("saved-meal writes and macro-target tools are registered, confirm-gated, and send nested inputs", () => {
+  const tools = (server as unknown as { _registeredTools: Record<string, { description?: string }> })._registeredTools;
+  for (const name of [
+    "create_client_saved_meal", "update_client_saved_meal", "delete_client_saved_meal",
+    "set_client_macro_targets", "clear_client_macro_targets",
+  ]) assert.match(tools[name].description ?? "", /confirm-gated/, name);
+  assert.ok(docs.has("get_client_macro_targets"));
+  assert.match(docs.get("create_client_saved_meal")!, /createSavedMeal\(input: \$input\)/);
+  assert.match(docs.get("set_client_macro_targets")!, /setClientNutritionTargets\(clientId: \$clientId, input: \$input\)/);
+  assert.match(docs.get("get_client_macro_targets")!, /proteinG carbsG fatG/);
+});
