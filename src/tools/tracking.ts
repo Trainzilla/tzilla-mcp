@@ -269,7 +269,7 @@ export function registerTrackingTools(server: McpServer): void {
   });
   writeTool(server, {
     name: "accept_health_report_into_progress",
-    desc: "Promote a NEEDS_REVIEW health report's extracted values into the client's progress timeline.",
+    desc: "Promote a NEEDS_REVIEW health report's extracted values into the client's progress timeline. Works before the client finishes app onboarding too: the values are held and join their timeline when they onboard (see list_pending_client_progress).",
     field: "acceptHealthReportIntoProgress",
     args: "reportId: ID!",
     select: "_id status projectedProgressEntryId",

@@ -121,7 +121,7 @@ export function registerAiCheckinsInboxTools(server: McpServer): void {
   });
   writeTool(server, {
     name: "add_checkin_log",
-    desc: "Add a coach message (and optional answers) to a check-in.",
+    desc: "Add a coach message (and optional answers) to a check-in. A coach may enter the client's answers on their behalf (questionId from get_checkin) and, for history, set loggedAt (past ISO date/time) so it shows when it really happened. For many past check-ins at once use import_checkin_history.",
     field: "addCheckInLog",
     args: "input: AddCheckInLogInput!",
     select: "_id checkInId message createdAt",
@@ -130,6 +130,7 @@ export function registerAiCheckinsInboxTools(server: McpServer): void {
         checkInId: id,
         message: z.string().min(1),
         answers: z.array(z.object({ questionId: id, value: z.string() })).optional(),
+        loggedAt: z.string().optional().describe("Past ISO date/time the client actually answered (coach only)"),
       }),
     },
   });

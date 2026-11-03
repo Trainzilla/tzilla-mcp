@@ -956,7 +956,7 @@ server.tool(
 
 server.tool(
   "create_checkin",
-  "Schedule a check-in for a client with optional questions (confirm-gated). scheduledFor: ISO date. question.type: TEXT|NUMBER|SCALE|PHOTO.",
+  "Schedule a check-in for a client with optional questions (confirm-gated). scheduledFor: ISO date; a PAST date records a check-in that already happened (created accepted, the client is not notified) — use import_checkin_history to load many with their answers. question.type: TEXT|NUMBER|SCALE|PHOTO.",
   {
     clientId: z.string().min(1),
     scheduledFor: z.string().min(1).describe("ISO date/time, e.g. 2026-06-10 or 2026-06-10T09:00:00Z"),
