@@ -30,15 +30,36 @@ const MODALITIES = ["STRENGTH", "INTERVAL", "STEADY", "AMRAP", "EMOM", "FOR_TIME
 const WEEKDAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const;
 const READ_ONLY = { readOnlyHint: true } as const;
 
+/**
+ * reps may be a number or a range string ("8-10", "12–15"). A range is saved as repsMin (low) + reps (high),
+ * so it no longer collapses to just the top number.
+ */
+export function parseReps(raw: unknown, rawMin?: unknown): { reps: number; repsMin?: number } {
+  const range = typeof raw === "string" ? raw.trim().match(/^(\d+)\s*(?:-|–|—|to)\s*(\d+)$/i) : null;
+  let low = range ? Number(range[1]) : Number(rawMin);
+  let high = range ? Number(range[2]) : Number(raw);
+  if (!(high > 0)) high = low > 0 && !range ? low : 10;
+  if (range && low > high) [low, high] = [high, low];
+  high = Math.round(high);
+  const lowInt = Math.round(low);
+  return lowInt >= 1 && lowInt < high ? { reps: high, repsMin: lowInt } : { reps: high };
+}
+
 /** Coerce loose exercise objects into valid ExerciseInput: known section + required numeric fields. */
-function normalizeExercises(exercises: Record<string, unknown>[]): Record<string, unknown>[] {
+export function normalizeExercises(exercises: Record<string, unknown>[]): Record<string, unknown>[] {
   return exercises.map((raw, i) => {
     const e: Record<string, unknown> = { ...raw };
     const sec = String(e.section ?? "").toUpperCase().replace(/[\s-]+/g, "_");
     e.section = WORKOUT_SECTIONS.includes(sec) ? sec : "RESISTANCE";
     e.name = String(e.name ?? "Exercise");
     e.sets = Number(e.sets) > 0 ? Number(e.sets) : 3;
-    e.reps = Number(e.reps) > 0 ? Number(e.reps) : 10;
+    const { reps, repsMin } = parseReps(e.reps, e.repsMin);
+    e.reps = reps;
+    if (repsMin !== undefined) e.repsMin = repsMin;
+    else delete e.repsMin;
+    const superset = String(e.supersetGroup ?? "").trim();
+    if (superset) e.supersetGroup = superset;
+    else delete e.supersetGroup;
     e.restSeconds = Number(e.restSeconds) >= 0 ? Number(e.restSeconds) : 60;
     e.order = Number(e.order) > 0 ? Number(e.order) : i + 1;
 
@@ -566,7 +587,7 @@ const PDF_PLAN_NOTE =
 
 server.tool(
   "get_workout_plan",
-  "Full detail of one client workout plan: every exercise (sets, reps, rest, section, notes, cardio fields) and the original PDF's text when the plan came from a coach's PDF. Pass the plan _id from list_workout_plans. " +
+  "Full detail of one client workout plan: every exercise (sets, reps, repsMin when reps is a range like 8-10, rest, section, supersetGroup, notes, cardio fields) and the original PDF's text when the plan came from a coach's PDF. Pass the plan _id from list_workout_plans. " +
     PDF_PLAN_NOTE,
   { planId: z.string().min(1) },
   READ_ONLY,
@@ -576,7 +597,7 @@ server.tool(
         `query WPById($id: ID!) {
            workoutPlanById(id: $id) {
              _id title description clientId days startDate endDate createdAt
-             exercises { name order section sets reps restSeconds notes modality rounds durationSeconds distanceMeters recoverySeconds targetPace effort exerciseId }
+             exercises { name order section sets reps repsMin restSeconds notes modality rounds durationSeconds distanceMeters recoverySeconds targetPace supersetGroup effort exerciseId }
              document { fileName text }
            }
          }`,
@@ -1120,7 +1141,7 @@ server.tool(
 server.tool(
   "create_workout_plan",
   "Create a workout plan for a client (confirm-gated). To check whether one was already created — for example if asked \"is it done?\" — call list_workout_plans instead of calling this again; re-running this with confirm: true a second time for the same client and title returns the plan already on file rather than writing a duplicate. " +
-    "exercises: array of { name, sets, reps, restSeconds?, section?, exerciseId?, notes?, modality?, ... }. " +
+    "exercises: array of { name, sets, reps, restSeconds?, section?, exerciseId?, notes?, modality?, supersetGroup?, ... }. reps is a number or a range like \"8-10\" (saved as a range; the app shows 8-10). supersetGroup: same label (\"A\", \"B\") = done back to back. " +
     "modality selects which parameters actually describe the work: STRENGTH (sets/reps/restSeconds) | INTERVAL (rounds + distanceMeters or durationSeconds + recoverySeconds + targetPace) | STEADY (durationSeconds or distanceMeters + targetPace) | AMRAP or EMOM (durationSeconds as the cap + rounds) | FOR_TIME | HOLD (durationSeconds). " +
     "Never describe a run as sets and reps: '6 x 400 m at 5k pace, 90 s jog' is modality INTERVAL with rounds 6, distanceMeters 400, recoverySeconds 90, targetPace '5k pace'. Call get_training_split first so the week has a real structure. " +
     "section must be one of WARMUP | RESISTANCE | STRETCHING | CARDIO | COOL_DOWN (defaults to RESISTANCE so the app renders them under 'Main Workout'). " +
@@ -1774,7 +1795,7 @@ server.tool(
   async ({ id }) =>
     guard(() =>
       gql(
-        `query T($id: ID!) { workoutPlanTemplateById(id: $id) { _id title description tags difficulty goal exercises { name sets reps restSeconds section order exerciseId } } }`,
+        `query T($id: ID!) { workoutPlanTemplateById(id: $id) { _id title description tags difficulty goal exercises { name sets reps repsMin restSeconds section order supersetGroup exerciseId } } }`,
         { id }
       )
     )
