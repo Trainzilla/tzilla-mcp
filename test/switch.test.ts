@@ -39,5 +39,5 @@ test("the instructions cover platforms with no export (paste, screenshots, other
   for (const word of ["Copy and paste", "Screenshots", "payment tool", "Type or dictate", "do not guess or construct emails", "Never scrape", "has no browser", "signs in themselves", "Read-only"]) {
     assert.ok(SWITCH_INSTRUCTIONS.includes(word), word);
   }
-  assert.ok(!/ask(ing)? for[^.]*password/i.test(SWITCH_INSTRUCTIONS.replace("Never ask for, store or type in their password", "")));
+  assert.match(SWITCH_INSTRUCTIONS, /never see, ask for or type a password/);
 });
