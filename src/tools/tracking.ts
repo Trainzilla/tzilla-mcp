@@ -49,10 +49,10 @@ export function registerTrackingTools(server: McpServer): void {
   });
   readTool(server, {
     name: "get_client_daily_metrics",
-    desc: "Daily steps, water glasses, resting heart rate, active calories and sleep a client logged, over a date range.",
+    desc: "Daily steps, water glasses, resting heart rate, active calories and sleep a client logged, over a date range. Also healthKcal/healthProteinG/healthCarbsG/healthFatG: the client's daily nutrition totals read from Apple Health / Health Connect (what MyFitnessPal and similar apps write there; healthNutritionSource says which). Totals only, no foods or times, and only data logged after the client connected. Separate from get_client_diet_logs: never add the two together.",
     field: "dailyMetricsInRange",
     args: "clientId: ID!, startDate: String!, endDate: String!",
-    select: "id clientId date steps glasses restingHeartRate activeCaloriesBurned sleepMinutes",
+    select: "id clientId date steps glasses restingHeartRate activeCaloriesBurned sleepMinutes healthKcal healthProteinG healthCarbsG healthFatG healthNutritionSource",
     shape: { clientId, startDate: day, endDate: day },
   });
   readTool(server, {
@@ -168,7 +168,7 @@ export function registerTrackingTools(server: McpServer): void {
     desc: "Set a client's steps / water glasses / resting HR / active calories / sleep minutes for one day.",
     field: "upsertDailyMetric",
     args: "input: UpsertDailyMetricInput!",
-    select: "id clientId date steps glasses restingHeartRate activeCaloriesBurned sleepMinutes",
+    select: "id clientId date steps glasses restingHeartRate activeCaloriesBurned sleepMinutes healthKcal healthProteinG healthCarbsG healthFatG healthNutritionSource",
     shape: {
       input: z.object({
         clientId,
