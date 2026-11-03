@@ -9,6 +9,7 @@ import { registerAiCheckinsInboxTools } from "./ai-checkins-inbox.js";
 import { registerLibraryUnitTools } from "./library-units.js";
 import { registerGroupTools } from "./groups.js";
 import { registerCoachNoteTools } from "./coach-notes.js";
+import { registerSwitchTools } from "./switch.js";
 
 /** Tool groups added after the original index.ts — one module per domain. */
 export function registerExtraTools(server: McpServer): void {
@@ -22,4 +23,5 @@ export function registerExtraTools(server: McpServer): void {
   registerLibraryUnitTools(server);
   registerGroupTools(server);
   registerCoachNoteTools(server);
+  registerSwitchTools(server);
 }
