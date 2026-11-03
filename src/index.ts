@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { assertConfigured } from "./config.js";
 import { gql } from "./client.js";
+import { instrumentTools } from "./observability.js";
 import { confirmField, fail, groupDoc, groupOptionsShape, guard, ok, preview, runGroupAssign, type ToolResult } from "./kit.js";
 import { registerExtraTools } from "./tools/index.js";
 import { pickRecentDuplicate, RecentPlan } from "./duplicate-guard.js";
@@ -3101,6 +3102,7 @@ export function buildServer(): McpServer {
     { name: "tzilla-coach", version: "0.1.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
+  instrumentTools(server);
   registerAll(server);
   return server;
 }
