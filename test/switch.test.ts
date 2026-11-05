@@ -41,3 +41,10 @@ test("the instructions cover platforms with no export (paste, screenshots, other
   }
   assert.match(SWITCH_INSTRUCTIONS, /never see, ask for or type a password/);
 });
+
+test("the instructions name the copy-client-list helper and say a blank cell is a missing value, not a shift", async () => {
+  const { SWITCH_INSTRUCTIONS } = await import("../src/tools/switch.js");
+  for (const phrase of ["copy client list", "/copy-client-list/", "a blank cell means that client has no value there", "never shift later values left"]) {
+    assert.ok(SWITCH_INSTRUCTIONS.includes(phrase), phrase);
+  }
+});
