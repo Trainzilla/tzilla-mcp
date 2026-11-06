@@ -48,3 +48,8 @@ test("the instructions name the copy-client-list helper and say a blank cell is 
     assert.ok(SWITCH_INSTRUCTIONS.includes(phrase), phrase);
   }
 });
+
+test("the instructions tell coaches what to do when the list has no email column (Capture this client), and never to invent an email", async () => {
+  const { SWITCH_INSTRUCTIONS } = await import("../src/tools/switch.js");
+  for (const phrase of ["no email column", "Capture this client", "Never invent an email"]) assert.ok(SWITCH_INSTRUCTIONS.includes(phrase), phrase);
+});
