@@ -10,6 +10,7 @@ import { registerLibraryUnitTools } from "./library-units.js";
 import { registerGroupTools } from "./groups.js";
 import { registerCoachNoteTools } from "./coach-notes.js";
 import { registerSwitchTools } from "./switch.js";
+import { registerProgramTools } from "./programs.js";
 
 /** Tool groups added after the original index.ts — one module per domain. */
 export function registerExtraTools(server: McpServer): void {
@@ -24,4 +25,5 @@ export function registerExtraTools(server: McpServer): void {
   registerGroupTools(server);
   registerCoachNoteTools(server);
   registerSwitchTools(server);
+  registerProgramTools(server);
 }
