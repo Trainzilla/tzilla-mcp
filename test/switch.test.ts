@@ -30,7 +30,8 @@ test("the switch prompt and the shipped skill carry the same instructions", asyn
   const { SWITCH_INSTRUCTIONS } = await import("../src/tools/switch.js");
   const md = readFileSync(new URL("../skills/switch-to-trainzilla/SKILL.md", import.meta.url), "utf8");
   assert.equal(md.split("-->\n")[1].trim(), SWITCH_INSTRUCTIONS);
-  assert.ok(SWITCH_INSTRUCTIONS.includes("bulk_invite_clients"));
+  assert.ok(SWITCH_INSTRUCTIONS.includes("add_offline_clients"));
+  assert.ok(SWITCH_INSTRUCTIONS.includes("invite_offline_clients"));
 });
 
 test("the instructions cover platforms with no export (paste, screenshots, other sources, typing) and never guess emails", async () => {
@@ -52,4 +53,12 @@ test("the instructions name the copy-client-list helper and say a blank cell is 
 test("the instructions tell coaches what to do when the list has no email column (Capture this client), and never to invent an email", async () => {
   const { SWITCH_INSTRUCTIONS } = await import("../src/tools/switch.js");
   for (const phrase of ["no email column", "Capture this client", "Never invent an email"]) assert.ok(SWITCH_INSTRUCTIONS.includes(phrase), phrase);
+});
+
+test("the instructions add clients offline first, invite afterwards, and never email on add", async () => {
+  const { SWITCH_INSTRUCTIONS } = await import("../src/tools/switch.js");
+  for (const phrase of ["offline clients", "Adding emails nobody", "invite_offline_clients", "moves to the client's own account when they accept", "Name is the only required field"]) {
+    assert.ok(SWITCH_INSTRUCTIONS.includes(phrase), phrase);
+  }
+  assert.ok(!SWITCH_INSTRUCTIONS.includes("Find email (required)"));
 });
