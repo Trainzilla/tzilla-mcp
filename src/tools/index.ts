@@ -13,6 +13,7 @@ import { registerSwitchTools } from "./switch.js";
 import { registerProgramTools } from "./programs.js";
 import { registerInsightsCatalogPromoTools } from "./insights-catalog-promos.js";
 import { registerGymPaySettingsIntegrationTools } from "./gym-pay-settings-integrations.js";
+import { registerExercisesReferralsBuildAiTools } from "./exercises-referrals-buildai.js";
 
 /** Tool groups added after the original index.ts — one module per domain. */
 export function registerExtraTools(server: McpServer): void {
@@ -30,4 +31,5 @@ export function registerExtraTools(server: McpServer): void {
   registerProgramTools(server);
   registerInsightsCatalogPromoTools(server);
   registerGymPaySettingsIntegrationTools(server);
+  registerExercisesReferralsBuildAiTools(server);
 }
