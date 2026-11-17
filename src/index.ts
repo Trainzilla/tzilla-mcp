@@ -7,7 +7,7 @@ import { z } from "zod";
 import { assertConfigured } from "./config.js";
 import { gql } from "./client.js";
 import { instrumentTools } from "./observability.js";
-import { confirmField, fail, groupDoc, groupOptionsShape, guard, ok, preview, runGroupAssign, type ToolResult } from "./kit.js";
+import { confirmField, fail, groupDoc, groupOptionsShape, guard, ok, preview, REGISTERED_DOCS, runGroupAssign, type ToolResult } from "./kit.js";
 import { registerExtraTools } from "./tools/index.js";
 import { pickRecentDuplicate, RecentPlan } from "./duplicate-guard.js";
 import {
@@ -1110,6 +1110,65 @@ server.tool(
       { groupIds, excludeClientIds, allowDuplicates },
       Boolean(confirm),
     )
+);
+
+/** Edit a group assignment: the SERVER previews (who would be changed) unless confirm is true. */
+const UPDATE_GROUP_OUTCOME = "assignmentId preview createdCount skippedCount failedCount rows { clientId name itemId status reason }";
+function updateGroupDoc(tool: string, field: string, changesType: string): string {
+  const doc = `mutation Tool($assignmentId: ID!, $changes: ${changesType}!, $preview: Boolean) { ${field}(assignmentId: $assignmentId, changes: $changes, preview: $preview) { ${UPDATE_GROUP_OUTCOME} } }`;
+  REGISTERED_DOCS.push({ tool, doc });
+  return doc;
+}
+const updateWorkoutDoc = updateGroupDoc("update_group_workout_assignment", "updateGroupWorkoutAssignment", "GroupWorkoutChangesInput");
+const updateDietDoc = updateGroupDoc("update_group_diet_assignment", "updateGroupDietAssignment", "GroupDietChangesInput");
+
+server.tool(
+  "update_group_workout_assignment",
+  "Change a workout that was given to groups (assignmentId from list_group_assignments): title, description, exercises, days or dates, applied to each member's copy that the coach has not edited themselves. Confirm-gated: without confirm it previews which members would change and which would be skipped. Exercises use the same format as create_workout_plan.",
+  {
+    assignmentId: z.string().min(1),
+    title: z.string().min(1).optional(),
+    description: z.string().optional(),
+    exercises: z.array(z.record(z.unknown())).min(1).optional(),
+    days: z.array(z.string()).optional(),
+    startDate: z.string().optional().describe("YYYY-MM-DD"),
+    endDate: z.string().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, assignmentId, exercises, ...changes }) =>
+    guard(async () => {
+      const data = await gql<Record<string, unknown>>(updateWorkoutDoc, {
+        assignmentId,
+        changes: { ...changes, ...(exercises ? { exercises: normalizeExercises(exercises) } : {}) },
+        preview: !confirm,
+      });
+      const outcome = data.updateGroupWorkoutAssignment;
+      return confirm ? outcome : { status: "preview", action: "update_group_workout_assignment", outcome, note: "Nothing was written. Re-run with confirm: true to apply." };
+    })
+);
+
+server.tool(
+  "update_group_diet_assignment",
+  "Change a nutrition plan that was given to groups (assignmentId from list_group_assignments): title, description, meals or dates, applied to each member's copy that the coach has not edited themselves. Confirm-gated: without confirm it previews which members would change and which would be skipped. Meals use the same format as create_diet_plan, including itemised ingredients.",
+  {
+    assignmentId: z.string().min(1),
+    title: z.string().min(1).optional(),
+    description: z.string().optional(),
+    meals: z.array(dietMealSchema).min(1).superRefine(requireItemisedMeals).optional(),
+    startDate: z.string().optional().describe("YYYY-MM-DD"),
+    endDate: z.string().optional(),
+    ...confirmField,
+  },
+  async ({ confirm, assignmentId, meals, ...changes }) =>
+    guard(async () => {
+      const data = await gql<Record<string, unknown>>(updateDietDoc, {
+        assignmentId,
+        changes: { ...changes, ...(meals ? { meals: normalizeDietMeals(meals as Record<string, unknown>[]) } : {}) },
+        preview: !confirm,
+      });
+      const outcome = data.updateGroupDietAssignment;
+      return confirm ? outcome : { status: "preview", action: "update_group_diet_assignment", outcome, note: "Nothing was written. Re-run with confirm: true to apply." };
+    })
 );
 
 server.tool(
