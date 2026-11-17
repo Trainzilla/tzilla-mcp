@@ -12,6 +12,7 @@ import { registerCoachNoteTools } from "./coach-notes.js";
 import { registerSwitchTools } from "./switch.js";
 import { registerProgramTools } from "./programs.js";
 import { registerInsightsCatalogPromoTools } from "./insights-catalog-promos.js";
+import { registerGymPaySettingsIntegrationTools } from "./gym-pay-settings-integrations.js";
 
 /** Tool groups added after the original index.ts — one module per domain. */
 export function registerExtraTools(server: McpServer): void {
@@ -28,4 +29,5 @@ export function registerExtraTools(server: McpServer): void {
   registerSwitchTools(server);
   registerProgramTools(server);
   registerInsightsCatalogPromoTools(server);
+  registerGymPaySettingsIntegrationTools(server);
 }
