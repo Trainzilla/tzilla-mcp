@@ -9,7 +9,7 @@ auth and business rules stay enforced by the backend.
 > write tools**, plus a resource + a prompt. Not deployed anywhere. Runs entirely
 > on your machine against your own coach login.
 
-## What it can do today (422 tools, 1 resource, 1 prompt)
+## What it can do today (451 tools, 1 resource, 1 prompt)
 
 **Read (live data):**
 - `whoami`, `list_clients`, `get_client_profile`
@@ -38,6 +38,7 @@ against the backend schema with `scripts/validate-docs.mjs`):
 - *Business* — plans (create/prices/listing/active/session rules/delete), pause/cancel membership, desk payments, direct-pay claim confirm/reject, payments, invoices + settings, share links, Coach Pro pricing/checkout link, referral program, gym seat billing.
 - *Community, gym, workflows, catalog, profile* — community posts/comments, gym kiosks/face/check-ins/standing bookings/imports/staff/domain, workflow edit/delete + gym-wide workflows, PDF plan import, food/recipe/exercise catalog, branding/custom domain/global payout/localization, Google Calendar status, video calls.
 - *Insights, catalog and promos, Nov 2026* (`src/tools/insights-catalog-promos.ts`) — `get_client_roster` (segments: needs programming / inactive / new / plan ending / on track), `list_clients_with_declining_recovery`, `get_habit_adherence_all_clients`, `get_client_workout_streak`, `list_ai_run_history`, `list_client_subscriptions`, `get_session`, `get_community_unread_count`; exercise catalog browse (`list_exercise_body_parts`, `list_exercise_equipment`, `browse_exercise_catalog`, `delete_custom_exercise`); discount codes (`list_coupons`, `create_coupon`, `set_coupon_active`); workout-days challenges (`list_challenges`, `get_challenge_leaderboard`, `create_challenge`, `set_challenge_active`, `delete_challenge`); reusable workout sections (`list_workout_section_templates`, `create_`/`update_`/`delete_workout_section_template`).
+- *Gym payments, settings, integrations, Nov 2026* (`src/tools/gym-pay-settings-integrations.ts`) — gym direct pay + gym Stripe/Razorpay connect (keys hidden in previews); coach and per-client notification settings, away message, display name; Calendly status/connect/disconnect/unmatched bookings; outbound webhooks (list, deliveries, create — secret returned once — on/off, test, delete); client group limits, per-client access/role, optional onboarding steps.
 - *Client groups (Coach Pro / gym), Nov 2026* — `list_client_groups`, `get_client_group`, `list_groups_for_client`, create/update/delete group, `add_group_members`/`remove_group_members`, `get_group_overview`, `list_group_assignments`, and the fan-outs `assign_workout_to_groups`, `assign_diet_to_groups`, `assign_habit_to_groups`, `message_groups`, `schedule_checkin_for_groups`, `book_session_for_groups`, `undo_group_assignment`. The fan-outs preview server-side without `confirm` (who would get it, who is skipped and why) and are idempotent for 10 minutes. `scripts/mcp-groups-e2e.mjs` drives them against a local backend (`TZ_API_URL=http://127.0.0.1:4100/graphql`).
 
 Validate documents against the backend schema after changing a tool:
