@@ -53,7 +53,7 @@ export function mcpRouter(): Router {
     res.json({ ok: true, server: "tzilla-coach" });
   });
 
-  router.post("/", async (req: Request, res: Response) => {
+  const handle = (profile?: "directory") => async (req: Request, res: Response) => {
     // Accept any bearer credential and forward it to the GraphQL API, which
     // authenticates both Trainzilla API keys ("tz_...") and OAuth access tokens.
     // We don't gate on a prefix here so the OAuth flow works end-to-end; the
@@ -69,7 +69,7 @@ export function mcpRouter(): Router {
     }
 
     // Stateless: a fresh server + transport per request.
-    const server = buildServer();
+    const server = buildServer({ profile });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       void transport.close();
@@ -84,7 +84,10 @@ export function mcpRouter(): Router {
         rpcError(res, 500, -32603, e instanceof Error ? e.message : "Internal error");
       }
     }
-  });
+  };
+  router.post("/", handle());
+  // Curated, descriptive-only tool set submitted to public directories (see directory.ts).
+  router.post("/directory", handle("directory"));
 
   // Stateless mode has no SSE stream / session teardown.
   const notAllowed = (_req: Request, res: Response) =>

@@ -8,6 +8,7 @@ import { assertConfigured } from "./config.js";
 import { gql } from "./client.js";
 import { instrumentTools } from "./observability.js";
 import { annotateTools } from "./annotations.js";
+import { applyDirectoryProfile, DIRECTORY_INSTRUCTIONS } from "./directory.js";
 import { confirmField, fail, groupDoc, groupOptionsShape, guard, ok, preview, REGISTERED_DOCS, runGroupAssign, type ToolResult } from "./kit.js";
 import { registerExtraTools } from "./tools/index.js";
 import { CHECKIN_QUESTION_FIELDS, checkInQuestionShape } from "./tools/checkin-question.js";
@@ -3159,13 +3160,15 @@ const SERVER_INSTRUCTIONS = [
 ].join("\n");
 
 /** Build a fully-registered MCP server instance. */
-export function buildServer(): McpServer {
+export function buildServer(options: { profile?: "directory" } = {}): McpServer {
+  const directory = options.profile === "directory";
   const server = new McpServer(
     { name: "tzilla-coach", version: "0.1.0" },
-    { instructions: SERVER_INSTRUCTIONS },
+    { instructions: directory ? DIRECTORY_INSTRUCTIONS : SERVER_INSTRUCTIONS },
   );
   instrumentTools(server);
   annotateTools(server);
+  if (directory) applyDirectoryProfile(server);
   registerAll(server);
   return server;
 }
