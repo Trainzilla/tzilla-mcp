@@ -82,3 +82,22 @@ test("explicit hints win, and the name rules are conservative", () => {
   assert.equal(isDestructiveName("create_organization"), false);
   assert.equal(isDestructiveName("remove_coach_location_assignment"), true);
 });
+
+test("no tool has an input property without a JSON-schema type (shared zod instances are cloned)", async () => {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+  const { buildServer } = await import("../src/index.js");
+  const server = buildServer();
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "t", version: "1" });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const { tools } = await client.listTools();
+  const untyped: string[] = [];
+  for (const t of tools) {
+    const props = ((t.inputSchema as any)?.properties ?? {}) as Record<string, any>;
+    for (const [k, v] of Object.entries(props)) {
+      if (!v || (v.type === undefined && !v.anyOf && !v.oneOf && !v.allOf && !v.enum && v.const === undefined)) untyped.push(`${t.name}.${k}`);
+    }
+  }
+  assert.deepEqual(untyped, []);
+});
