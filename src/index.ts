@@ -7,6 +7,7 @@ import { z } from "zod";
 import { assertConfigured } from "./config.js";
 import { gql } from "./client.js";
 import { instrumentTools } from "./observability.js";
+import { annotateTools } from "./annotations.js";
 import { confirmField, fail, groupDoc, groupOptionsShape, guard, ok, preview, REGISTERED_DOCS, runGroupAssign, type ToolResult } from "./kit.js";
 import { registerExtraTools } from "./tools/index.js";
 import { CHECKIN_QUESTION_FIELDS, checkInQuestionShape } from "./tools/checkin-question.js";
@@ -3164,6 +3165,7 @@ export function buildServer(): McpServer {
     { instructions: SERVER_INSTRUCTIONS },
   );
   instrumentTools(server);
+  annotateTools(server);
   registerAll(server);
   return server;
 }
