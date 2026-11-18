@@ -2147,7 +2147,7 @@ server.tool(
 
 server.tool(
   "update_my_professional",
-  "Update the coach's own professional info — specialties, certifications, years of experience, bio, languages, business type (confirm-gated). Sends the full object; read get_my_profile first if only changing one field.",
+  "Update the coach's own professional info — specialties, certifications, years of experience, bio, languages, business type, social links (Instagram, Facebook, TikTok, YouTube, website) and media links (confirm-gated). Sends the full object; read get_my_profile first if only changing one field. Leave socialLinks / mediaLinks out to keep the saved ones; pass the whole list to change them ([] removes all).",
   {
     specialties: z.array(z.string()).min(1),
     certifications: z.array(z.string()),
@@ -2158,6 +2158,11 @@ server.tool(
     profilePhoto: z.string(),
     gallery: z.array(z.string()),
     certificateFiles: z.array(z.string()),
+    socialLinks: z
+      .array(z.object({ name: z.string().min(1).describe("e.g. instagram, facebook, tiktok, youtube, website"), link: z.string().url() }))
+      .max(20)
+      .optional(),
+    mediaLinks: z.array(z.object({ name: z.string().min(1), link: z.string().url() })).max(20).optional(),
     ...confirmField,
   },
   async ({ confirm, ...professional }) => {
