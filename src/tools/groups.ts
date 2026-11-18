@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { checkInQuestionShape } from "./checkin-question.js";
 import { groupAssignTool, readTool, writeTool } from "../kit.js";
 
 const id = z.string().min(1);
@@ -8,12 +9,7 @@ const GROUP = `id name description color memberCount createdAt updatedAt`;
 const GROUP_WITH_MEMBERS = `${GROUP} members { clientId name addedAt }`;
 const OUTCOME = `assignmentId preview createdCount skippedCount failedCount rows { clientId name itemId status reason }`;
 
-const checkInQuestion = z.object({
-  type: z.enum(["TEXT", "NUMBER", "SCALE", "PHOTO", "YES_NO", "CHOICE"]),
-  label: z.string().min(1),
-  required: z.boolean().optional(),
-  options: z.array(z.string().min(1)).min(2).max(10).optional().describe("CHOICE only: the answers to pick from"),
-});
+const checkInQuestion = checkInQuestionShape;
 
 /**
  * Client groups (Coach Pro / gym): a coach's named lists of clients. Anything done "to a group" is done to each

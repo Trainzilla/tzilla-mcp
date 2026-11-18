@@ -9,6 +9,7 @@ import { gql } from "./client.js";
 import { instrumentTools } from "./observability.js";
 import { confirmField, fail, groupDoc, groupOptionsShape, guard, ok, preview, REGISTERED_DOCS, runGroupAssign, type ToolResult } from "./kit.js";
 import { registerExtraTools } from "./tools/index.js";
+import { CHECKIN_QUESTION_FIELDS, checkInQuestionShape } from "./tools/checkin-question.js";
 import { pickRecentDuplicate, RecentPlan } from "./duplicate-guard.js";
 import {
   calculateMacros,
@@ -737,7 +738,7 @@ server.tool(
     guard(() =>
       gql(
         `query CheckInAnswers($checkInId: ID!) {
-           checkIn: checkInById(id: $checkInId) { _id clientId scheduledFor questions { id type label required } }
+           checkIn: checkInById(id: $checkInId) { _id clientId scheduledFor title questions { ${CHECKIN_QUESTION_FIELDS} } }
            logs: checkInLogs(checkInId: $checkInId) { answers { questionId value } createdAt }
            photoAnswers: checkInPhotoAnswers(checkInId: $checkInId) { questionId label imageUrl }
          }`,
@@ -978,32 +979,25 @@ server.tool(
 
 server.tool(
   "create_checkin",
-  "Schedule a check-in for a client with optional questions (confirm-gated). scheduledFor: ISO date; a PAST date records a check-in that already happened (created accepted, the client is not notified) — use import_checkin_history to load many with their answers. question.type: TEXT|NUMBER|SCALE|PHOTO.",
+  "Schedule a check-in for a client with optional questions (confirm-gated). scheduledFor: ISO date; a PAST date records a check-in that already happened (created accepted, the client is not notified) — use import_checkin_history to load many with their answers. question.type: TEXT|NUMBER|SCALE|PHOTO|YES_NO|CHOICE; helpText is shown under a question; a NUMBER question with metric (WEIGHT, WAIST...) also saves the answer to the client's progress chart. title names it for the client (e.g. 'Measurements').",
   {
     clientId: z.string().min(1),
     scheduledFor: z.string().min(1).describe("ISO date/time, e.g. 2026-06-10 or 2026-06-10T09:00:00Z"),
-    questions: z
-      .array(
-        z.object({
-          type: z.enum(["TEXT", "NUMBER", "SCALE", "PHOTO"]),
-          label: z.string().min(1),
-          required: z.boolean().optional(),
-        })
-      )
-      .optional(),
+    title: z.string().max(120).optional().describe("What the client sees it as, e.g. 'Weekly check-in', 'Measurements'"),
+    questions: z.array(checkInQuestionShape).optional(),
     ...confirmField,
   },
-  async ({ confirm, clientId, scheduledFor, questions }) => {
-    if (!confirm) return preview("create_checkin", { clientId, scheduledFor, questions });
+  async ({ confirm, clientId, scheduledFor, title, questions }) => {
+    if (!confirm) return preview("create_checkin", { clientId, scheduledFor, title, questions });
     return guard(async () => {
       const trainerId = await trainerUserId();
       const normalizedQuestions = (questions ?? []).map((q) => ({
         ...q,
-        id: crypto.randomUUID(),
+        id: q.id || crypto.randomUUID(),
       }));
       return gql(
         `mutation CC($input: CreateCheckInInput!) { createCheckIn(input: $input) { _id scheduledFor } }`,
-        { input: { trainerId, clientId, scheduledFor, questions: normalizedQuestions } }
+        { input: { trainerId, clientId, scheduledFor, ...(title ? { title } : {}), questions: normalizedQuestions } }
       );
     });
   }
@@ -1015,21 +1009,14 @@ server.tool(
     "The backend will auto-create a check-in on the chosen day+time each week. " +
     "dayOfWeek: 0=Sun … 6=Sat. timeOfDay: HH:MM 24-hour. " +
     "Provide _id to update an existing schedule; omit to create a new one. " +
-    "question.type: TEXT|NUMBER|SCALE|PHOTO.",
+    "question.type: TEXT|NUMBER|SCALE|PHOTO|YES_NO|CHOICE; helpText shows under a question; metric on a NUMBER question (WEIGHT, WAIST...) saves the answer to the client's progress chart. " +
+    "Editing the day/time/questions replaces the future check-ins it already created.",
   {
     clientId: z.string().min(1),
     dayOfWeek: z.number().int().min(0).max(6).describe("0=Sunday, 1=Monday … 6=Saturday"),
     timeOfDay: z.string().regex(/^\d{2}:\d{2}$/).describe("HH:MM in 24-hour format, e.g. 09:00"),
     isActive: z.boolean().optional().default(true),
-    questions: z
-      .array(
-        z.object({
-          type: z.enum(["TEXT", "NUMBER", "SCALE", "PHOTO"]),
-          label: z.string().min(1),
-          required: z.boolean().optional(),
-        })
-      )
-      .optional(),
+    questions: z.array(checkInQuestionShape).optional(),
     scheduleId: z.string().min(1).optional().describe("Provide to update an existing schedule"),
     ...confirmField,
   },
@@ -1039,13 +1026,13 @@ server.tool(
     return guard(async () => {
       const normalizedQuestions = (questions ?? []).map((q) => ({
         ...q,
-        id: crypto.randomUUID(),
+        id: q.id || crypto.randomUUID(),
       }));
       return gql(
         `mutation USC($input: UpsertCheckInScheduleInput!) {
            upsertCheckInSchedule(input: $input) {
              _id clientId dayOfWeek timeOfDay isActive
-             questions { id type label required }
+             questions { ${CHECKIN_QUESTION_FIELDS} }
            }
          }`,
         {
