@@ -65,6 +65,40 @@ export function inferAnnotations(name: string, given?: Annotations): Annotations
   return out;
 }
 
+/**
+ * The same zod object used for two parameters of one tool (e.g. `startDate: day, endDate: day`) makes the JSON-schema
+ * generator emit a `$ref` for the second one, which has no `type`; directories flag that ("Add a type to this
+ * parameter"). Give every repeated instance its own copy.
+ */
+const CHILD_KEYS = ["innerType", "type", "schema", "in", "out", "left", "right"] as const;
+
+/** Copy a zod schema (and the schemas it wraps) so no two parameters share a definition object. */
+function cloneSchema(v: unknown, depth = 0): unknown {
+  if (!v || typeof v !== "object" || depth > 8) return v;
+  const ctor = (v as { constructor: new (def: unknown) => unknown }).constructor;
+  const def = (v as { _def?: Record<string, unknown> })._def;
+  if (!def || typeof def !== "object") return v;
+  const copy: Record<string, unknown> = { ...def };
+  for (const key of CHILD_KEYS) {
+    const child = copy[key];
+    if (child && typeof child === "object" && (child as { _def?: unknown })._def) copy[key] = cloneSchema(child, depth + 1);
+  }
+  if (Array.isArray(copy.options)) copy.options = copy.options.map((o) => cloneSchema(o, depth + 1));
+  return new ctor(copy);
+}
+
+/**
+ * The same zod object used for two parameters of one tool (e.g. `startDate: day, endDate: day`, or `isoDate.optional()`
+ * twice) makes the JSON-schema generator emit a `$ref` for the second one, which has no `type`; directories flag that
+ * ("Add a type to this parameter"). Every parameter gets its own copy of its schema.
+ */
+export function dedupeShape(shape: unknown): unknown {
+  if (!shape || typeof shape !== "object" || Array.isArray(shape)) return shape;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(shape as Record<string, unknown>)) out[key] = cloneSchema(value);
+  return out;
+}
+
 const isPlainObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === "object" && !Array.isArray(v);
 
 /**
@@ -91,7 +125,7 @@ export function withAnnotations(args: unknown[]): unknown[] {
     else shape = o;
   }
   const merged = inferAnnotations(name, ann);
-  return [name, ...(desc !== undefined ? [desc] : []), shape ?? {}, merged, cb];
+  return [name, ...(desc !== undefined ? [desc] : []), dedupeShape(shape ?? {}), merged, cb];
 }
 
 /** Patch `server.tool` so every tool registered afterwards carries complete annotations. Call before registering. */
