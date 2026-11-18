@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { CHECKIN_QUESTION_FIELDS, checkInQuestionShape } from "./checkin-question.js";
 import { restGet } from "../client.js";
 import { guard, READ_ONLY, readTool, writeTool, trainerId } from "../kit.js";
 
@@ -156,7 +157,7 @@ export function registerAiCheckinsInboxTools(server: McpServer): void {
     desc: "The coach's recurring check-in schedules (weekday + time + questions per client).",
     field: "checkInSchedulesForTrainer",
     args: "trainerId: ID!",
-    select: "_id clientId dayOfWeek timeOfDay isActive intervalWeeks anchorDate timeZone client { _id name } questions { id type label required }",
+    select: `_id clientId dayOfWeek timeOfDay isActive intervalWeeks anchorDate timeZone client { _id name } questions { ${CHECKIN_QUESTION_FIELDS} }`,
     resolve: async () => ({ trainerId: await trainerId() }),
   });
   writeTool(server, {
@@ -175,7 +176,7 @@ export function registerAiCheckinsInboxTools(server: McpServer): void {
         intervalWeeks: z.number().int().min(1).max(4).optional().describe("1 weekly (default), 2 bi-weekly, 3 or 4"),
         timeZone: z.string().optional().describe("IANA zone the time is read in, e.g. America/New_York"),
         questions: z
-          .array(z.object({ id: z.string().optional(), type: z.enum(["TEXT", "NUMBER", "SCALE", "PHOTO"]), label: z.string().min(1), required: z.boolean().optional() }))
+          .array(checkInQuestionShape)
           .optional(),
       }),
     },

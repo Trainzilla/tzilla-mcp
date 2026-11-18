@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { CHECKIN_QUESTION_FIELDS, checkInQuestionShape } from "./checkin-question.js";
 import { createHash } from "node:crypto";
 import { gql } from "../client.js";
 import { confirmField, guard, readTool, REGISTERED_DOCS, WRITE, writeTool } from "../kit.js";
@@ -7,7 +8,7 @@ import { confirmField, guard, readTool, REGISTERED_DOCS, WRITE, writeTool } from
 const id = z.string().min(1);
 
 const ITEM_SELECT = `id type dayOffset time repeat { everyDays everyWeeks untilDay }
-  payload { text via templateId title durationDays habitId sessionType durationMinutes meetingLink sessionNotes bookAheadDays questions { id type label required options } }`;
+  payload { text via templateId title durationDays habitId sessionType durationMinutes meetingLink sessionNotes bookAheadDays questions { ${CHECKIN_QUESTION_FIELDS} } }`;
 const PROGRAM_LIST = `id name description lengthDays version archived activeEnrollmentCount updatedAt`;
 const PROGRAM_FULL = `${PROGRAM_LIST} items { ${ITEM_SELECT} }`;
 const ENROLLMENT = `id programId programName clientId clientName startDate timeZone status lengthDays customised behindTemplate createdAt updatedAt`;
@@ -16,17 +17,12 @@ const OCCURRENCE = `id enrollmentId programId clientId itemId itemType occurrenc
 
 const dateKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-MM-dd");
 
-const questionShape = z.object({
-  type: z.enum(["TEXT", "NUMBER", "SCALE", "PHOTO", "YES_NO", "CHOICE"]),
-  label: z.string().min(1),
-  required: z.boolean().optional(),
-  options: z.array(z.string().min(1)).min(2).max(10).optional().describe("CHOICE only"),
-});
+const questionShape = checkInQuestionShape;
 
 /** One thing in a program. dayOffset 0 is Day 1 (the day the client starts); there are no calendar dates in a program. */
 const itemShape = z.object({
   id: id.optional().describe("Keep the id from get_program when editing an existing item; leave out for a new one"),
-  type: z.enum(["MESSAGE", "CHECKIN", "WORKOUT", "NUTRITION", "HABIT", "SESSION"]).describe("CHECKIN is the photo / check-in request"),
+  type: z.enum(["MESSAGE", "CHECKIN", "WORKOUT", "NUTRITION", "HABIT", "SESSION"]).describe("CHECKIN = any check-in (weekly check-in, measurements, progress photos); give it a payload.title"),
   dayOffset: z.number().int().min(0).max(729).describe("0 = Day 1, 14 = Day 15"),
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().describe("HH:mm in the client's time zone; default 09:00"),
   repeat: z
@@ -43,7 +39,7 @@ const itemShape = z.object({
       via: z.enum(["chat", "push", "email"]).optional().describe("MESSAGE: default chat"),
       questions: z.array(questionShape).optional().describe("CHECKIN: the questions (include a PHOTO question for progress photos)"),
       templateId: id.optional().describe("WORKOUT / NUTRITION: a plan template id (list_workout_plan_templates / list_diet_plan_templates)"),
-      title: z.string().optional().describe("WORKOUT / NUTRITION: title for the client's plan"),
+      title: z.string().optional().describe("WORKOUT / NUTRITION: title for the client's plan. CHECKIN: what the client sees it as, e.g. 'Weekly check-in', 'Measurements', 'Progress photos'"),
       durationDays: z.number().int().min(1).max(730).optional().describe("WORKOUT / NUTRITION: how long the plan runs"),
       habitId: id.optional().describe("HABIT: a master habit id"),
       sessionType: z.enum(["online", "in_person"]).optional().describe("SESSION"),
